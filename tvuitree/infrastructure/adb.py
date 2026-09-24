@@ -1,34 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-tv_adb.py — 设备接入层（tv_tree.py / tv_input.py / tv_shot.py 共用）
-
-职责边界（只做这三件事）
-------------------------
-  1. 找到 adb 可执行文件；
-  2. 连上设备，并在 adbd 掉线时自愈重连一次；
-  3. 执行命令并把结果取回来，附带读设备/屏幕/窗口这几项基础信息。
-
-**不含任何控件树解析逻辑** —— 那是 tv_tree.py 的事。
-按键与截图也不在这里 —— 那是 tv_input.py / tv_shot.py 的事。
-
-为什么单独成文件
-----------------
-三个脚本都要「找到 adb + 连上设备 + 执行命令」。写在各自文件里就是三份
-同样的代码，改一处要改三处（本项目刻意去掉这类重复）。
-"""
+"""Execute ADB commands and read Android TV device metadata."""
 
 from __future__ import annotations
 
-import argparse
 import os
 import re
 import shutil
 import subprocess
-import sys
+import logging
 from typing import Optional
 
-DEFAULT_HOST = "192.168.31.102"
+from tvuitree.domain.component import component_from_window, component_from_activity_record
+
+DEFAULT_HOST = "192.168.1.147"
 DEFAULT_PORT = 5555
 
 # Windows 上常见的 adb 位置（按顺序探测）
@@ -50,44 +35,6 @@ _OFFLINE_RE = re.compile(
 class AdbError(RuntimeError):
     """adb 层面的失败（找不到 adb / 超时 / 设备掉线且重连失败）。"""
 
-
-class C:
-    """终端着色。非 tty 或 --no-color 时整体关掉。"""
-
-    _on = True
-    R = "\033[0m"; B = "\033[1m"; DIM = "\033[2m"
-    RED = "\033[31m"; GRN = "\033[32m"; YEL = "\033[33m"
-    BLU = "\033[34m"; MAG = "\033[35m"; CYA = "\033[36m"; GRY = "\033[90m"
-
-    @classmethod
-    def off(cls):
-        cls._on = False
-        for name in ("R", "B", "DIM", "RED", "GRN", "YEL", "BLU", "MAG", "CYA", "GRY"):
-            setattr(cls, name, "")
-
-
-def c(text: str, color: str) -> str:
-    return f"{color}{text}{C.R}" if C._on else text
-
-
-def setup_console(no_color: bool = False) -> None:
-    """Windows 控制台兼容 + 着色开关。
-
-    编码这条是实测踩过的坑：本机 stdout 可能是 cp936 或 ascii。cp936 能显示中文
-    就保留（切 UTF-8 反而会让重定向出来的文件乱码），只有编码根本无法表示中文
-    （None/ascii）时才切到 UTF-8。
-    """
-    if no_color or os.environ.get("NO_COLOR") or not sys.stdout.isatty():
-        C.off()
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            enc = (getattr(stream, "encoding", None) or "").lower()
-            if enc in ("", "ascii", "us-ascii", "ansi_x3.4-1968"):
-                stream.reconfigure(encoding="utf-8", errors="replace")
-            else:
-                stream.reconfigure(errors="replace")
-        except Exception:
-            pass
 
 
 def resolve_adb(explicit: Optional[str]) -> str:
@@ -153,7 +100,7 @@ class Adb:
             msg = out + err
             ok = "connected" in msg.lower() and "cannot" not in msg.lower()
             if ok:
-                print(c(f"[adb] 连接中断，已自动重连 {self.serial}", C.YEL), file=sys.stderr)
+                logging.warning("[adb] 连接中断，已自动重连 %s", self.serial)
             return ok
         finally:
             self._healing = False
@@ -180,7 +127,7 @@ class Adb:
                 rc, out, err = self._popen(["connect", self.serial], timeout=20)
                 msg = (out + err).strip()
                 if not quiet and msg:
-                    print(c(f"[adb] {msg}", C.GRY), file=sys.stderr)
+                    logging.info("[adb] %s", msg)
             except AdbError:
                 pass
         rc, out, _ = self._popen(["devices"], timeout=20)
@@ -240,67 +187,3 @@ class Adb:
 
 
 # ---- component 字符串处理 ----
-
-def component_from_window(text: Optional[str]) -> Optional[str]:
-    """`Window{... u0 com.pkg/.Cls}` → `com.pkg/.Cls`"""
-    if not text:
-        return None
-    m = re.search(r"\s([A-Za-z][\w.]*)/([\w.$]+)\}", text)
-    if m:
-        return f"{m.group(1)}/{m.group(2)}"
-    m = re.search(r"([A-Za-z][\w.]*)/([\w.$]+)", text)
-    return f"{m.group(1)}/{m.group(2)}" if m else None
-
-
-def component_from_activity_record(text: Optional[str]) -> Optional[str]:
-    """`ActivityRecord{... u0 com.pkg/.Cls t42}` → `com.pkg/.Cls`"""
-    if not text:
-        return None
-    m = re.search(r"\s([A-Za-z][\w.]*)/([\w.$]+)\s", text + " ")
-    return f"{m.group(1)}/{m.group(2)}" if m else None
-
-
-def normalize_component(comp: Optional[str]) -> Optional[tuple]:
-    """`com.pkg/.Cls` → `("com.pkg", "com.pkg.Cls")`；不合法返回 None。"""
-    if not comp or "/" not in comp:
-        return None
-    pkg, cls = comp.split("/", 1)
-    if cls.startswith("."):
-        cls = pkg + cls
-    return (pkg, cls)
-
-
-# ---- CLI 公共参数 ----
-
-def add_conn_args(p: argparse.ArgumentParser) -> None:
-    """三个脚本共用的设备接入参数。"""
-    p.add_argument("--host", default=DEFAULT_HOST, help=f"电视 IP（默认 {DEFAULT_HOST}）")
-    p.add_argument("--port", type=int, default=DEFAULT_PORT,
-                   help=f"adb TCP 端口（默认 {DEFAULT_PORT}）")
-    p.add_argument("--serial", default=None, help="直接指定 adb serial（如 USB 连接时的序列号）")
-    p.add_argument("--address", default=None, help="直接指定 host:port，等价于 --host + --port")
-    p.add_argument("--adb", default=None, help="adb 可执行文件路径（默认自动探测）")
-    p.add_argument("--no-connect", action="store_true", help="不自动执行 adb connect")
-    p.add_argument("--no-color", action="store_true", help="关闭彩色输出")
-    p.add_argument("-q", "--quiet", action="store_true", help="不打印诊断信息")
-
-
-def resolve_serial(args) -> str:
-    return args.serial or args.address or f"{args.host}:{args.port}"
-
-
-def connect_device(args, quiet: bool = False) -> Optional[Adb]:
-    """建 Adb 并连接。失败时打印可直接照做的排查步骤，返回 None。
-
-    `--no-connect` 时不执行 adb connect，但仍会检查设备是否已在列表里。
-    """
-    serial = resolve_serial(args)
-    adb = Adb(resolve_adb(args.adb), serial, auto_connect=not args.no_connect)
-    if adb.connect(quiet=quiet or getattr(args, "quiet", False)):
-        return adb
-    print(c(f"无法连接 {serial}", C.RED), file=sys.stderr)
-    print(c(f"  1) 电视与电脑在同一网段？  ping {args.host}", C.YEL), file=sys.stderr)
-    print(c("  2) 电视已开启 ADB 调试 / 网络调试？", C.YEL), file=sys.stderr)
-    print(c(f"  3) 端口对不对？  {adb.adb} connect {args.host}:{args.port}", C.YEL), file=sys.stderr)
-    print(c("  4) adb 路径对不对？  --adb <路径>", C.YEL), file=sys.stderr)
-    return None

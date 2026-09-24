@@ -34,7 +34,7 @@ selftest_tree.py — 离线自检：不连设备、不联网、不需要 pytest
 
 用法
 ----
-  python selftest_tree.py            # 全部通过 → 退出码 0；有失败 → 退出码 1
+  python tests/selftest_tree.py      # 全部通过 → 退出码 0；有失败 → 退出码 1
 """
 
 from __future__ import annotations
@@ -47,14 +47,14 @@ import shutil
 import sys
 import tempfile
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, HERE)
 
-import tv_adb          # noqa: E402
-import tv_input        # noqa: E402
-import tv_shot         # noqa: E402
-import tv_tree         # noqa: E402
-
-HERE = os.path.dirname(os.path.abspath(__file__))
+from tvuitree.domain import component, observation as domain_observation, screenshot
+from tvuitree.domain.tree import models, parsing, matching, capture, output as tree_output, pruning
+from tvuitree.application import input as remote_input, observation as application_observation
+from tvuitree.infrastructure import adb, image
+from tvuitree.interfaces import cli, connection, terminal, observe as observe_interface, tree as tree_interface
 
 
 # ================================================================== 断言收集器
@@ -236,11 +236,11 @@ EXP_TREE_NODES = EXP_PAIRED + EXP_INSERTED     # 统一树节点数 = 10
 
 def build_fixture() -> dict:
     """离线跑一遍「解析 → 配对 → 全量 JSON」，产出后续所有断言用的样本。"""
-    blocks = tv_tree.parse_dumpsys_top(DUMPSYS)
-    u2_roots = tv_tree.parse_u2_xml(A11Y)
+    blocks = parsing.parse_dumpsys_top(DUMPSYS)
+    u2_roots = parsing.parse_u2_xml(A11Y)
     view_roots = blocks[0].roots
-    st = tv_tree.align(u2_roots, view_roots, PKG, SCR)
-    obj = tv_tree.build_full_json(
+    st = matching.align(u2_roots, view_roots, PKG, SCR)
+    obj = tree_output.build_full_json(
         u2_roots, view_roots,
         {"version": "3.7.0", "info": {"displayWidth": 1920, "displayHeight": 1080}},
         {"model": "SELFTEST", "release": "14", "sdk": "34"},
@@ -285,7 +285,12 @@ def run_cli(argv: list, out: str) -> tuple:
     """跑一次 main()，收走 stdout/stderr；返回 (退出码, 输出文件解析结果或 None)。"""
     o, e = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(o), contextlib.redirect_stderr(e):
-        rc = tv_tree.main(argv)
+        command = "observe" if "observe" in argv else "tree"
+        migrated = list(argv)
+        if command == "observe":
+            index = migrated.index("--mode")
+            del migrated[index:index + 2]
+        rc = cli.main([command] + migrated)
     data = None
     if out and os.path.exists(out):
         with open(out, "r", encoding="utf-8") as f:
@@ -301,39 +306,39 @@ with open(FULL_PATH, "w", encoding="utf-8") as _f:
 
 # ================================================================== 0. 设备接入层
 
-t.group("0. 三个脚本共用同一套设备接入（tv_adb 是唯一出口）")
+t.group("0. 统一入口的设备参数与连接选项")
 
-for mod, name in ((tv_tree, "tv_tree.py"), (tv_input, "tv_input.py"),
-                  (tv_shot, "tv_shot.py")):
-    help_text = mod.build_parser().format_help()
+for name in ("observe", "tree", "input", "shot"):
+    command_parser = cli.build_parser()._subparsers._group_actions[0].choices[name]
+    help_text = command_parser.format_help()
     for opt in ("--host", "--port", "--serial", "--address", "--adb", "--no-connect",
                 "--no-color", "--quiet"):
-        t.ok(opt in help_text, f"{name} 要有公共参数 {opt}（设备接入参数只能有一处定义）")
-t.eq(tv_adb.resolve_adb("X:/adb.exe"), "X:/adb.exe", "显式指定的 adb 路径优先（不查文件系统）")
-t.eq(tv_adb.normalize_component("com.demo/.MainActivity"),
+        t.ok(opt in help_text, f"{name} 要有公共设备参数 {opt}")
+t.eq(adb.resolve_adb("X:/adb.exe"), "X:/adb.exe", "显式指定的 adb 路径优先（不查文件系统）")
+t.eq(component.normalize_component("com.demo/.MainActivity"),
      ("com.demo", "com.demo.MainActivity"), "`.Cls` 写法要补全包名")
-t.eq(tv_adb.normalize_component("com.demo/.MainActivity"),
-     tv_adb.normalize_component("com.demo/com.demo.MainActivity"),
+t.eq(component.normalize_component("com.demo/.MainActivity"),
+     component.normalize_component("com.demo/com.demo.MainActivity"),
      "同一个 component 的两种写法必须归一化成同一个值（否则段匹配会时不时失手）")
-t.eq(tv_adb.normalize_component("没有斜杠"), None, "不合法输入返回 None（不猜）")
-t.eq(tv_adb.normalize_component(None), None, "None 输入")
-t.eq(tv_adb.component_from_activity_record(
+t.eq(component.normalize_component("没有斜杠"), None, "不合法输入返回 None（不猜）")
+t.eq(component.normalize_component(None), None, "None 输入")
+t.eq(component.component_from_activity_record(
     "  ACTIVITY com.demo/.MainActivity deadbeef pid=100 userId=0"),
     "com.demo/.MainActivity", "从 ACTIVITY 行取 component")
-t.eq(tv_adb.component_from_window(
+t.eq(component.component_from_window(
     "  mFocusedWindow=Window{abc u0 com.demo/.MainActivity}"),
     "com.demo/.MainActivity", "从 window dump 取 component")
-t.eq(tv_adb.resolve_serial(tv_input.build_parser().parse_args(["--host", "1.2.3.4",
-                                                              "--port", "5555"])),
-     "1.2.3.4:5555", "serial 默认由 host:port 拼出")
+t.eq(connection.options_from_args(
+    cli.build_parser().parse_args(["input", "--host", "1.2.3.4", "--port", "5555"])
+).target, "1.2.3.4:5555", "serial 默认由 host:port 拼出")
 _CN = ("R", "B", "DIM", "RED", "GRN", "YEL", "BLU", "MAG", "CYA", "GRY")
-_saved = {k: getattr(tv_adb.C, k) for k in _CN}
-_saved_on = tv_adb.C._on
-tv_adb.C.off()
-t.eq(tv_adb.c("x", tv_adb.C.RED), "x", "关色后 c() 返回原文（重定向到文件时不带转义码）")
-tv_adb.C._on = _saved_on
+_saved = {k: getattr(terminal.C, k) for k in _CN}
+_saved_on = terminal.C._on
+terminal.C.off()
+t.eq(terminal.c("x", terminal.C.RED), "x", "关色后 c() 返回原文（重定向到文件时不带转义码）")
+terminal.C._on = _saved_on
 for _k, _v in _saved.items():
-    setattr(tv_adb.C, _k, _v)
+    setattr(terminal.C, _k, _v)
 
 
 # ================================================================== 1. dumpsys 解析
@@ -349,6 +354,11 @@ t.eq(len(blk.roots), 1, "段内应有 1 个根")
 root = blk.roots[0]
 t.eq(root.cls, "DecorView", "根类名不带包名（DecorView@hash[Name] 形式）")
 t.eq(root.oname, "MainActivity", "根节点 [] 内的名字")
+post_name = parsing.parse_node_line(
+    "com.android.internal.policy.DecorView{e99bd3f I.ED..... R.....ID "
+    "0,0-1920,1080 aid=0}[MainSettings]", 1, 6)
+t.eq(post_name.oname if post_name else None, "MainSettings",
+     "Android 16 的 DecorView{...}[Name] 后置名字格式")
 t.eq(root.bounds, None, "根节点**没有** bounds —— dumper 就是这么写的")
 t.eq(root.flags1, None, "根节点**没有** flags")
 t.eq(len(blk.all_nodes), EXP_VIEW_NODES, "段内 view 节点总数")
@@ -384,8 +394,8 @@ BAD = "\n".join([
     "        android.widget.FrameLayout{aaa V.E...... ......ID}",
     "",
 ])
-bad_blocks = tv_tree.parse_dumpsys_top(BAD)
-anom = list(tv_tree.PARSE_ANOMALIES)
+bad_blocks = parsing.parse_dumpsys_top(BAD)
+anom = list(models.PARSE_ANOMALIES)
 t.eq(len(bad_blocks), 1, "畸形 dump 仍能出段（不因个别行放弃整棵树）")
 t.ok(any("bounds" in w for _, _, w in anom),
      "「有字段却没解析出 bounds」要记成解析告警", f"实际告警 {anom}")
@@ -396,12 +406,12 @@ BAD2 = "\n".join([
     "         com.demo.T{bbb V.E...... ......ID 0,0-10,10}",
     "",
 ])
-tv_tree.parse_dumpsys_top(BAD2)
-t.ok(any("整数倍" in w for _, _, w in tv_tree.PARSE_ANOMALIES),
+parsing.parse_dumpsys_top(BAD2)
+t.ok(any("整数倍" in w for _, _, w in models.PARSE_ANOMALIES),
      "缩进不是 2 的倍数要记成解析告警（层级可能错位，不能默默吞掉）",
-     f"实际告警 {tv_tree.PARSE_ANOMALIES}")
-tv_tree.parse_dumpsys_top(DUMPSYS)
-t.eq(tv_tree.PARSE_ANOMALIES, [], "正常 dump 不该产生任何解析告警")
+     f"实际告警 {models.PARSE_ANOMALIES}")
+parsing.parse_dumpsys_top(DUMPSYS)
+t.eq(models.PARSE_ANOMALIES, [], "正常 dump 不该产生任何解析告警")
 
 
 # ================================================================== 2. 坐标与谓词
@@ -409,46 +419,46 @@ t.eq(tv_tree.PARSE_ANOMALIES, [], "正常 dump 不该产生任何解析告警")
 t.group("2. 坐标换算与谓词（读数 / 派生值分离）")
 
 gamma_v = [n for n in blk.all_nodes if n.res_id == "app:id/gamma"][0]
-t.eq(tv_tree.absolute_bounds(gamma_v), (0, 700, 1920, 1300),
+t.eq(matching.absolute_bounds(gamma_v), (0, 700, 1920, 1300),
      "absolute_bounds = 沿祖先链累加（**派生值**，dump 不含 scrollX/scrollY）")
-t.eq(tv_tree.clip_to_chain(gamma_v, None), (0, 700, 1920, 1080),
+t.eq(matching.clip_to_chain(gamma_v, None), (0, 700, 1920, 1080),
      "clip_to_chain = 再与各祖先求交 → 裁剪后的可见矩形")
-t.eq(tv_tree.pred_visible_rect(gamma_v, SCR), (0, 700, 1920, 1080),
+t.eq(matching.pred_visible_rect(gamma_v, SCR), (0, 700, 1920, 1080),
      "pred_visible_rect = 再与屏幕求交")
-t.eq(tv_tree.absolute_bounds(root), None, "根节点没 bounds → 派生值也给不出（不猜）")
+t.eq(matching.absolute_bounds(root), None, "根节点没 bounds → 派生值也给不出（不猜）")
 
-t.eq(tv_tree.intersect((0, 0, 10, 10), (20, 20, 30, 30)), (20, 20, 20, 20),
+t.eq(matching.intersect((0, 0, 10, 10), (20, 20, 30, 30)), (20, 20, 20, 20),
      "无交集 → 退化成零面积矩形（判「屏幕外」就靠它）")
-t.eq(tv_tree.intersect(None, (1, 2, 3, 4)), (1, 2, 3, 4), "None 视作无约束")
+t.eq(matching.intersect(None, (1, 2, 3, 4)), (1, 2, 3, 4), "None 视作无约束")
 
-t.eq(tv_tree.norm_res_id("app:id/x", "com.demo"), "com.demo:id/x",
+t.eq(matching.norm_res_id("app:id/x", "com.demo"), "com.demo:id/x",
      "ViewDebug 的 app:id/ 要归一化成 <包名>:id/")
-t.eq(tv_tree.norm_res_id("android:id/content", "com.demo"), "android:id/content",
+t.eq(matching.norm_res_id("android:id/content", "com.demo"), "android:id/content",
      "android: 前缀原样保留")
-t.eq(tv_tree.norm_res_id(None, "com.demo"), None, "None 仍是 None")
-t.eq(tv_tree.norm_res_id("app:id/x", None), "app:id/x", "不知道包名就不动它（不猜）")
+t.eq(matching.norm_res_id(None, "com.demo"), None, "None 仍是 None")
+t.eq(matching.norm_res_id("app:id/x", None), "app:id/x", "不知道包名就不动它（不猜）")
 
-t.eq(tv_tree.is_framework_cls("android.widget.TextView"), True, "android.widget.* 是框架类")
-t.eq(tv_tree.is_framework_cls("androidx.recyclerview.widget.RecyclerView"), False,
+t.eq(matching.is_framework_cls("android.widget.TextView"), True, "android.widget.* 是框架类")
+t.eq(matching.is_framework_cls("androidx.recyclerview.widget.RecyclerView"), False,
      "androidx.* **不**算框架类 —— a11y 不替换它，也就不能拿它当配对硬条件")
-t.eq(tv_tree.is_framework_cls("com.demo.MyGrid"), False, "自定义类不是框架类")
+t.eq(matching.is_framework_cls("com.demo.MyGrid"), False, "自定义类不是框架类")
 
-u_all = tv_tree.u2_all(FX["u2_roots"])
+u_all = matching.u2_all(FX["u2_roots"])
 u_beta = [n for n in u_all if n.res_id == "com.demo:id/beta"][0]
 u_grid = [n for n in u_all if n.cls == "com.demo.MyGrid"][0]
 u_rec = [n for n in u_all if n.res_id == "com.demo:id/grid"][0]
 my_rec = [n for n in blk.all_nodes if n.res_id == "app:id/grid"][0]
 
-t.eq(tv_tree.class_ok(beta, u_beta), (True, False), "框架类且同名 → 通过、无替换")
-t.eq(tv_tree.class_ok(grid, u_grid), (True, False), "自定义类同名 → 通过、无替换")
-t.eq(tv_tree.class_ok(my_rec, u_rec), (True, True),
+t.eq(matching.class_ok(beta, u_beta), (True, False), "框架类且同名 → 通过、无替换")
+t.eq(matching.class_ok(grid, u_grid), (True, False), "自定义类同名 → 通过、无替换")
+t.eq(matching.class_ok(my_rec, u_rec), (True, True),
      "自定义类名被 a11y 换成框架类名 → 通过、记一次「类名替换」")
-t.eq(tv_tree.class_ok(tv_tree.Node(cls="android.widget.TextView"), u_rec)[0], False,
+t.eq(matching.class_ok(models.Node(cls="android.widget.TextView"), u_rec)[0], False,
      "框架类名不等 → **拒绝**配对（框架类不会被 a11y 替换，不等就是配错了）")
 
-t.eq(tv_tree.resid_ok(my_rec, u_rec, PKG), True, "res-id 归一化后相等")
-t.eq(tv_tree.resid_ok(beta, u_rec, PKG), False, "res-id 不等")
-t.eq(tv_tree.resid_ok(grid, u_grid, PKG), True, "两侧都是 None 也算相等（同为 None 不比）")
+t.eq(matching.resid_ok(my_rec, u_rec, PKG), True, "res-id 归一化后相等")
+t.eq(matching.resid_ok(beta, u_rec, PKG), False, "res-id 不等")
+t.eq(matching.resid_ok(grid, u_grid, PKG), True, "两侧都是 None 也算相等（同为 None 不比）")
 
 
 # ================================================================== 3. R0–R3 配对
@@ -492,15 +502,15 @@ t.eq(sorted(u.match_reason for u in u_all),
 # 子序列对齐「宁缺毋滥」：多解（歧义）与无解都要被拒，并且**说明原因**，
 # 不能随便挑一个解顶上 —— 挑错一个，整棵子树的层级就全错了。
 def _amb_case(u_rids, v_rids):
-    kids_u = [tv_tree.U2Node(raw={}, cls="android.widget.FrameLayout", bounds=(0, 0, 10, 10),
+    kids_u = [models.U2Node(raw={}, cls="android.widget.FrameLayout", bounds=(0, 0, 10, 10),
                              res_id=r) for r in u_rids]
-    kids_v = [tv_tree.Node(cls="android.widget.FrameLayout", bounds=(0, 0, 10, 10),
+    kids_v = [models.Node(cls="android.widget.FrameLayout", bounds=(0, 0, 10, 10),
                            res_id=r) for r in v_rids]
-    pu = tv_tree.U2Node(raw={}, cls="android.widget.FrameLayout", bounds=(0, 0, 10, 10),
+    pu = models.U2Node(raw={}, cls="android.widget.FrameLayout", bounds=(0, 0, 10, 10),
                         children=kids_u)
-    pv = tv_tree.Node(cls="android.widget.FrameLayout", bounds=(0, 0, 10, 10),
+    pv = models.Node(cls="android.widget.FrameLayout", bounds=(0, 0, 10, 10),
                       children=kids_v)
-    return tv_tree.align([pu], [pv], PKG, None)
+    return matching.align([pu], [pv], PKG, None)
 
 
 st_multi = _amb_case([None, None], [None, None, None])
@@ -521,7 +531,7 @@ t.eq((st_uni.paired, st_uni.seq_refused), (2, []),
 
 t.group("4. 统一树与全量 JSON")
 
-uni = tv_tree.build_unified(FX["u2_roots"], FX["view_roots"], ST, SCR)
+uni = matching.build_unified(FX["u2_roots"], FX["view_roots"], ST, SCR)
 t.eq(len(uni), 1, "统一树只有 1 个根")
 uni_flat: list = []
 
@@ -593,14 +603,41 @@ t.eq(OBJ["focus"][0]["text"], "Beta", "焦点节点文字")
 t.eq(OBJ["focus"][0]["bounds_screen"], [468, -5, 972, 205], "焦点坐标是 a11y 读数")
 t.ok(OBJ["focus"][0]["path"].endswith("TextView"), "焦点路径按祖先链给出")
 
+# 模型观察层：焦点状态、上下文、精简页面和证据必须来自同一份 full JSON
+obs = application_observation.collect_observation(full_json=OBJ, max_nodes=4)
+t.eq(obs["schema_version"], "tv-observation/v1", "观察结果 schema 版本")
+t.eq(obs["mode"], "observe", "观察结果 mode")
+t.eq(obs["focus"]["status"], "found", "唯一焦点 → found")
+t.eq(obs["focus"]["candidate_count"], 1, "观察结果焦点候选数")
+t.eq(obs["focus"]["node"]["labels"], ["Beta"], "观察焦点文字")
+t.has(obs["focus"], "context", "观察结果包含焦点上下文")
+t.eq(obs["page"]["summary_node_count"], 4, "观察页面摘要受 max_nodes 限制")
+t.eq(obs["page"]["summary_truncated"], True, "页面摘要超出上限时显式标记")
+t.has(obs["evidence"], "align_stats", "观察结果保留配对统计")
+t.eq(obs["warnings"], [], "稳定夹具没有观察告警")
+
+amb = clean(OBJ)
+find(amb["tree"], resource_id="com.demo:id/alpha")["focused"] = True
+amb["focus"] = []
+amb_obs = application_observation.collect_observation(full_json=amb)
+t.eq(amb_obs["focus"]["status"], "ambiguous", "多个焦点 → ambiguous")
+t.eq(amb_obs["focus"]["candidate_count"], 2, "多个焦点候选全部保留")
+missing = clean(OBJ)
+for _node in flat(missing["tree"]):
+    _node.pop("focused", None)
+missing["focus"] = []
+missing_obs = application_observation.collect_observation(full_json=missing)
+t.eq(missing_obs["focus"]["status"], "missing", "无焦点 → missing")
+t.eq(domain_observation.error_observation("采集失败")["focus"]["status"], "error", "采集异常 → error")
+
 # 同一份输入跑两次，结果必须一致
 t.eq(json.dumps(clean(OBJ)["tree"]), json.dumps(OBJ["tree"]), "同输入 → 同输出（树部分）")
 
 # --no-dumpsys：只剩主源，且必须**不假装**有 dumpsys 信息
-nd_roots = tv_tree.parse_u2_xml(A11Y)                      # 全新解析：不带任何配对结果
-nd_st = tv_tree.align(nd_roots, [], None, None)
+nd_roots = parsing.parse_u2_xml(A11Y)                      # 全新解析：不带任何配对结果
+nd_st = matching.align(nd_roots, [], None, None)
 t.eq(nd_st.paired, 0, "--no-dumpsys 时不做任何配对")
-no_d = tv_tree.build_full_json(nd_roots, [], {"version": "x", "info": {}},
+no_d = tree_output.build_full_json(nd_roots, [], {"version": "x", "info": {}},
                                {}, SCREEN, WIN, nd_st, None, None, show_dumpsys=False)
 t.eq(no_d["supplement_source"], None, "--no-dumpsys 时补充源标注为 None")
 t.eq(count(no_d["tree"]), EXP_A11Y_NODES, "--no-dumpsys 时树只剩 a11y 节点")
@@ -614,32 +651,32 @@ t.eq(no_d["align_stats"]["view_nodes"], 0, "--no-dumpsys 时 view 节点数为 0
 
 t.group("5. 剪枝：开关语义与 --keep 增量")
 
-SW = tv_tree.default_switches()
+SW = pruning.default_switches()
 t.eq(sorted(SW), ["defaults", "derived", "empty", "gone", "instance", "meta",
                   "offscreen", "zeroarea"], "8 个开关")
 t.ok(all(SW.values()), "默认状态下每个开关都执行剪枝")
-t.eq(sorted(tv_tree.PRUNE_SWITCHES), sorted(SW), "开关表与默认值表必须同名同数")
-t.eq(tv_tree.OWNER_PRIORITY, ("gone", "zeroarea", "offscreen", "empty"),
+t.eq(sorted(pruning.PRUNE_SWITCHES), sorted(SW), "开关表与默认值表必须同名同数")
+t.eq(pruning.OWNER_PRIORITY, ("gone", "zeroarea", "offscreen", "empty"),
      "树级开关的认领优先序固定（改这个顺序会改变 --keep 的语义）")
-t.ok(set(tv_tree.OWNER_PRIORITY) <= set(SW), "认领优先序里的名字都必须是真开关")
-for name, (scope, on, desc) in tv_tree.PRUNE_SWITCHES.items():
+t.ok(set(pruning.OWNER_PRIORITY) <= set(SW), "认领优先序里的名字都必须是真开关")
+for name, (scope, on, desc) in pruning.PRUNE_SWITCHES.items():
     t.ok(scope in ("树", "字段"), f"开关 {name} 要标清作用域")
     t.ok(isinstance(on, bool), f"开关 {name} 的默认值要显式给")
     t.ok(len(desc) > 10, f"开关 {name} 要有文字说明（--prune-list 要读它）")
 
-t.eq(tv_tree.parse_switch_spec(None, list(SW)), [], "空参数 → []")
-t.eq(tv_tree.parse_switch_spec("gone，empty", list(SW)), ["gone", "empty"],
+t.eq(pruning.parse_switch_spec(None, list(SW)), [], "空参数 → []")
+t.eq(pruning.parse_switch_spec("gone，empty", list(SW)), ["gone", "empty"],
      "全角逗号也要能拆")
-t.eq(len(tv_tree.parse_switch_spec("all", list(SW))), len(SW), "all = 全部")
-t.eq(len(tv_tree.parse_switch_spec("*", list(SW))), len(SW), "* = 全部")
-t.eq(tv_tree.parse_switch_spec("gone,gone", list(SW)), ["gone"], "重复的开关名去重")
+t.eq(len(pruning.parse_switch_spec("all", list(SW))), len(SW), "all = 全部")
+t.eq(len(pruning.parse_switch_spec("*", list(SW))), len(SW), "* = 全部")
+t.eq(pruning.parse_switch_spec("gone,gone", list(SW)), ["gone"], "重复的开关名去重")
 try:
-    tv_tree.parse_switch_spec("nope", list(SW))
+    pruning.parse_switch_spec("nope", list(SW))
     t.ok(False, "未知开关名必须报错", "它没报错")
 except ValueError:
     t.ok(True, "未知开关名必须报错（不猜、不静默忽略）")
 
-slim = tv_tree.apply_prune(clean(OBJ), tv_tree.default_switches())
+slim = pruning.apply_prune(clean(OBJ), pruning.default_switches())
 t.eq(slim["mode"], "slim", "精简 JSON 的 mode")
 t.eq(count(slim["tree"]), EXP_TREE_NODES - 4,
      "默认精简：10 → 6（剪掉 gone/zeroarea/offscreen/empty 各 1）")
@@ -672,9 +709,9 @@ t.ok(count(slim["tree"]) < count(OBJ["tree"]), "精简确实比全量小")
 
 # --keep：把某个开关关掉 = 把那类信息**整类**加回来
 for name in ("gone", "zeroarea", "offscreen", "empty"):
-    sw = tv_tree.default_switches()
+    sw = pruning.default_switches()
     sw[name] = False
-    got = tv_tree.apply_prune(clean(OBJ), sw)
+    got = pruning.apply_prune(clean(OBJ), sw)
     t.eq(count(got["tree"]), 7, f"--keep {name} → 节点数（只放回这一类）")
     t.eq(got["slim"]["pruned_nodes"][name], 0, f"--keep {name} 之后该开关不再剪任何节点")
     t.not_has(got, "align_stats", f"--keep {name} 不影响 meta 开关的状态")
@@ -682,19 +719,19 @@ for name in ("gone", "zeroarea", "offscreen", "empty"):
 # 回归锁：GONE 节点在真机上**同时是零面积**。若树级开关不按固定优先序认领，
 # `--keep gone` 把 GONE 放过之后会被 zeroarea 顺手剪掉 —— 节点数一个不变，
 # 开关表里写着「可保留」的选项实际不起作用。这里必须看到 7 而不是 6。
-sw = tv_tree.default_switches()
+sw = pruning.default_switches()
 sw["gone"] = False
-got = tv_tree.apply_prune(clean(OBJ), sw)
+got = pruning.apply_prune(clean(OBJ), sw)
 t.eq(count(got["tree"]), 7, "--keep gone 必须真的把 GONE 节点留下（认领顺序回归）")
 t.ok(find(got["tree"], resource_id="app:id/hidden") is not None,
      "--keep gone 之后 GONE 节点要在树里")
 t.eq(got["slim"]["pruned_nodes"]["zeroarea"], 1, "GONE 节点归 gone 管，不被 zeroarea 兼职认领")
-t.eq(tv_tree._is_zeroarea(find(clean(OBJ)["tree"], resource_id="app:id/hidden")), True,
+t.eq(pruning._is_zeroarea(find(clean(OBJ)["tree"], resource_id="app:id/hidden")), True,
      "前提校验：那条 GONE 节点确实也是零面积（否则这条回归测不出东西）")
 
 # 全关 = 全量：一个开关都不剪，树必须与全量**逐字节**一致
 sw_all = {k: False for k in SW}
-got = tv_tree.apply_prune(clean(OBJ), sw_all)
+got = pruning.apply_prune(clean(OBJ), sw_all)
 t.eq(count(got["tree"]), EXP_TREE_NODES, "--keep all → 节点数与全量相同")
 t.eq(json.dumps(got["tree"]), json.dumps(OBJ["tree"]),
      "--keep all 时精简树与全量树逐字节一致")
@@ -703,7 +740,7 @@ t.eq(got["slim"]["field_defaults"], None, "--keep defaults 时不给默认值表
 t.eq(got["slim"]["nodes"], {"full": EXP_TREE_NODES, "slim": EXP_TREE_NODES}, "节点计数")
 
 # 对已经剪过的结果再剪一次：幂等，不崩、也不把剪掉的节点变回来
-again = tv_tree.apply_prune(clean(slim), tv_tree.default_switches())
+again = pruning.apply_prune(clean(slim), pruning.default_switches())
 t.eq(count(again["tree"]), count(slim["tree"]), "再剪一次是幂等的")
 
 # 剪枝是**原地改**，但绝不能改动调用方传进来的那份（否则 full 会被 slim 污染）
@@ -718,7 +755,7 @@ t.group("6. 命令行（离线路径）")
 
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
-    rc = tv_tree.main(["--prune-list"])
+    rc = cli.main(["tree", "--prune-list"])
 t.eq(rc, 0, "--prune-list 退出码")
 listing = buf.getvalue()
 for name in SW:
@@ -733,6 +770,15 @@ t.eq(count(data["tree"]), EXP_TREE_NODES - 4, "离线重剪的节点数")
 t.eq(data["slim"]["nodes"]["full"], EXP_TREE_NODES, "报告里的「剪前」节点数来自输入 JSON")
 t.ok(data["slim"]["derived_from"].startswith("全量 JSON"),
      "要写明精简版是从全量 JSON 剪出来的（不是第二条采集路径）")
+
+observe_path = os.path.join(TD, "observe_cli.json")
+rc, observed = run_cli(["--from-json", FULL_PATH, "--mode", "observe",
+                        "--out", observe_path], observe_path)
+t.eq(rc, 0, "--from-json + --mode observe 退出码")
+t.eq(observed["mode"], "observe", "CLI observe 输出模式")
+t.eq(observed["focus"]["status"], "found", "CLI observe 焦点状态")
+t.eq(observed["focus"], application_observation.collect_observation(full_json=OBJ)["focus"],
+     "CLI 与核心观察 API 输出一致")
 
 for keep, want in (("gone", 7), ("zeroarea", 7), ("offscreen", 7), ("empty", 7),
                    ("all", EXP_TREE_NODES)):
@@ -767,37 +813,37 @@ t.eq(run_cli(["--from-json", os.path.join(TD, "nope.json"), "--mode", "slim",
 # 两次 dumpsys 的一致性比较：单调时钟字段必须排除，否则**恒定误报**
 d1 = _dumpsys(clock="1 (1 ms ago)")
 d2 = _dumpsys(clock="9999 (9999 ms ago)")
-t.eq(tv_tree.hierarchy_drift(d1, d1), (False, None), "同一份 dump 不比出漂移")
-t.eq(tv_tree.hierarchy_drift(d1, d2), (False, None),
+t.eq(capture.hierarchy_drift(d1, d1), (False, None), "同一份 dump 不比出漂移")
+t.eq(capture.hierarchy_drift(d1, d2), (False, None),
      "只有单调时钟字段不同 → **不算**漂移（拿整份文本比会恒定误报）")
-drift, why = tv_tree.hierarchy_drift(d1, _dumpsys(alpha_bounds="10,0-470,200"))
+drift, why = capture.hierarchy_drift(d1, _dumpsys(alpha_bounds="10,0-470,200"))
 t.eq(drift, True, "布局矩形变了 → 判定漂移")
 t.ok(why and "行不同" in why, "漂移说明要指出第一处不同在哪一行")
-t.eq(tv_tree.hierarchy_drift(d1, d1 + "\n  多出来的一行{x}")[0], True, "行数不同 → 判漂移")
-t.eq(tv_tree.hierarchy_drift("", "")[0], False, "两边都没有层次行 → 不判漂移")
+t.eq(capture.hierarchy_drift(d1, d1 + "\n  多出来的一行{x}")[0], True, "行数不同 → 判漂移")
+t.eq(capture.hierarchy_drift("", "")[0], False, "两边都没有层次行 → 不判漂移")
 
 
 # ================================================================== 7. 辅助脚本
 
-t.group("7. 辅助脚本（tv_input 键码 / tv_shot 画框）")
+t.group("7. 按键与截图坐标核对")
 
-t.eq(tv_input.normalize_keycode("DOWN"), "KEYCODE_DPAD_DOWN", "短名 → KEYCODE_*")
-t.eq(tv_input.normalize_keycode("down"), "KEYCODE_DPAD_DOWN", "大小写不敏感")
-t.eq(tv_input.normalize_keycode("  dpad_down  "), "KEYCODE_DPAD_DOWN", "两侧空格要去掉")
-t.eq(tv_input.normalize_keycode("OK"), "KEYCODE_DPAD_CENTER", "别名映射")
-t.eq(tv_input.normalize_keycode("CENTER"), "KEYCODE_DPAD_CENTER", "多个短名指向同一键码")
-t.eq(tv_input.normalize_keycode("KEYCODE_MENU"), "KEYCODE_MENU", "已是全名就不重复加前缀")
-t.eq(tv_input.normalize_keycode("20"), "20", "数字键码原样传递（不能加成 KEYCODE_20）")
+t.eq(remote_input.normalize_keycode("DOWN"), "KEYCODE_DPAD_DOWN", "短名 → KEYCODE_*")
+t.eq(remote_input.normalize_keycode("down"), "KEYCODE_DPAD_DOWN", "大小写不敏感")
+t.eq(remote_input.normalize_keycode("  dpad_down  "), "KEYCODE_DPAD_DOWN", "两侧空格要去掉")
+t.eq(remote_input.normalize_keycode("OK"), "KEYCODE_DPAD_CENTER", "别名映射")
+t.eq(remote_input.normalize_keycode("CENTER"), "KEYCODE_DPAD_CENTER", "多个短名指向同一键码")
+t.eq(remote_input.normalize_keycode("KEYCODE_MENU"), "KEYCODE_MENU", "已是全名就不重复加前缀")
+t.eq(remote_input.normalize_keycode("20"), "20", "数字键码原样传递（不能加成 KEYCODE_20）")
 # 真机踩过的坑：`input keyevent DOWN` 静默失败 —— 焦点不动但命令返回成功
-t.ok(tv_input.normalize_keycode("DOWN") != "DOWN",
+t.ok(remote_input.normalize_keycode("DOWN") != "DOWN",
      "裸名必须加 KEYCODE_ 前缀（input keyevent 不认裸名，且会**静默**失败）")
-for short, full in tv_input.KEY_ALIASES.items():
-    t.eq(tv_input.normalize_keycode(short), "KEYCODE_" + full,
+for short, full in remote_input.KEY_ALIASES.items():
+    t.eq(remote_input.normalize_keycode(short), "KEYCODE_" + full,
          f"短名 {short} 与它的键码 {full} 必须一致")
-t.not_has(tv_input.KEY_ALIASES, "KEYCODE_DPAD_DOWN", "别名表里只放不带前缀的键码名")
+t.not_has(remote_input.KEY_ALIASES, "KEYCODE_DPAD_DOWN", "别名表里只放不带前缀的键码名")
 
 # tv_shot：从树 JSON 取两种坐标 + 祖先链溢出告警
-sn = tv_shot.flatten([tv_shot.Node(n) for n in OBJ["tree"]])
+sn = screenshot.flatten([screenshot.Node(n) for n in OBJ["tree"]])
 t.eq(len(sn), EXP_TREE_NODES, "tv_shot 能把整棵树铺平成节点")
 g = [n for n in sn if n["resource_id"] == "com.demo:id/gamma"][0]
 a = [n for n in sn if n["resource_id"] == "com.demo:id/alpha"][0]
@@ -809,21 +855,21 @@ t.ok(g.chain_overflow() is not None, "祖先链溢出（Gamma 1300 超出父容�
 t.ok("溢出" in (g.chain_overflow() or ""), "告警要说清是溢出")
 t.eq(a.chain_overflow(), None, "矩形在父容器内的节点不该告警")
 
-boxes_focus, warns_focus = tv_shot.collect(OBJ, "focus", "both")
+boxes_focus, warns_focus = screenshot.collect(OBJ, "focus", "both")
 t.eq(len(boxes_focus), 2, "焦点节点 × both = 2 个框（a11y 红实线 + dumpsys 蓝虚线）")
 t.eq([b[5] for b in boxes_focus], ["reading", "derived"], "框要标明来源是读数还是派生")
 t.eq(warns_focus, [], "焦点节点的祖先链没有溢出 → 不该告警")
-boxes_all, warns_all = tv_shot.collect(OBJ, "all", "both")
+boxes_all, warns_all = screenshot.collect(OBJ, "all", "both")
 t.eq(len(boxes_all), 1 + 2 * (EXP_A11Y_NODES - 1) + EXP_INSERTED,
      "all × both：配对上、有布局矩形的 a11y 节点各 2 个框（读数+派生），"
      "根节点只有读数框，dumpsys 节点各 1 个派生框")
 t.eq(len(warns_all), 2, "只有溢出链上的派生框才告警（Gamma 与 off）")
 t.ok(any("Gamma" in w for w in warns_all), "告警要指名道姓（Gamma）")
-t.eq(len(tv_shot.collect(OBJ, "all", "a11y")[0]), EXP_A11Y_NODES,
+t.eq(len(screenshot.collect(OBJ, "all", "a11y")[0]), EXP_A11Y_NODES,
      "--source a11y 只画有屏幕读数的节点")
-t.eq(len(tv_shot.collect(OBJ, "actionable", "a11y")[0]), 1,
+t.eq(len(screenshot.collect(OBJ, "actionable", "a11y")[0]), 1,
      "actionable = 可点击/可聚焦/持焦点的节点（本夹具只有 beta）")
-lines = tv_shot.compare_focus(OBJ)
+lines = screenshot.compare_focus(OBJ)
 t.ok(any("差值" in x for x in lines), "焦点对照要算出两个来源的差")
 t.ok(any("drift" in x for x in lines), "焦点对照要带上 geom_check 档位")
 t.ok(any("中心和(2 倍)" in x for x in lines),
@@ -837,7 +883,7 @@ t.ok(any("中心严格重合" in x and "比例严格相等" in x for x in lines)
 near = clean(OBJ)
 fb1 = find(near["tree"], resource_id="com.demo:id/beta")
 fb1["dumpsys"]["bounds_abs_unclipped"] = [480, 0, 961, 200]
-ln_near = tv_shot.compare_focus(near)
+ln_near = screenshot.compare_focus(near)
 t.ok(any("不是等比缩放" in x for x in ln_near),
      "比例只差 1 像素也要判成「不等比」——判定是整数等式，不留经验容差")
 t.ok(any("两轴比例不等" in x for x in ln_near), "不等比要指名是哪一条不成立")
@@ -847,14 +893,14 @@ t.ok(any("两轴比例不等" in x for x in ln_near), "不等比要指名是哪�
 shift = clean(OBJ)
 fb = find(shift["tree"], resource_id="com.demo:id/beta")
 fb["dumpsys"]["bounds_abs_unclipped"] = [1000, 0, 1480, 200]
-ln2 = tv_shot.compare_focus(shift)
+ln2 = screenshot.compare_focus(shift)
 t.ok(any("不是等比缩放" in x for x in ln2),
      "平移型偏差不能说成缩放（否则滚动偏移会被误报成缩放动效）")
 t.ok(any("中心不重合" in x for x in ln2), "不成等比时要指出是中心不重合")
 t.ok(any("滚动偏移" in x for x in ln2), "不成等比时要指向可查的原因（溢出告警）")
 t.ok(any("不改" in x and "补偿" in x for x in ln2),
      "说明里要写死「不改读数、不补偿」——这是本脚本的立场")
-t.eq(tv_shot.load_tree(FULL_PATH)["mode"], "full", "load_tree 能读回自己写出的 JSON")
+t.eq(image.load_tree(FULL_PATH)["mode"], "full", "load_tree 能读回自己写出的 JSON")
 
 try:
     from PIL import Image
@@ -862,12 +908,12 @@ try:
 except ImportError:
     has_pil = False
 if has_pil:
-    red = tv_shot.COLOR_READING      # 后面所有像素级断言都要用
+    red = image.COLOR_READING      # 后面所有像素级断言都要用
     src = os.path.join(TD, "src.png")
     Image.new("RGB", (1920, 1080), (40, 40, 40)).save(src)
     with open(src, "rb") as f:
         png = f.read()
-    ok1, sk1, notes1 = tv_shot.draw_boxes(png, boxes_focus, os.path.join(TD, "d1.png"), SCREEN)
+    ok1, sk1, notes1 = image.draw_boxes(png, boxes_focus, os.path.join(TD, "d1.png"), SCREEN)
     t.eq((ok1, sk1), (2, 0), "同尺寸下两个框都画出、无跳过")
     # 夹具里 beta 的 a11y 读数是 [468,-5][972,205]：焦点缩放把上边顶出了屏幕上沿。
     # 「读数本身越界」必须被报出来（而旧实现只是默默裁掉，画面上看不出任何异常）。
@@ -878,14 +924,14 @@ if has_pil:
     Image.new("RGB", (960, 540), (40, 40, 40)).save(os.path.join(TD, "small.png"))
     with open(os.path.join(TD, "small.png"), "rb") as f:
         png2 = f.read()
-    ok2, sk2, notes2 = tv_shot.draw_boxes(png2, boxes_focus, os.path.join(TD, "d2.png"), SCREEN)
+    ok2, sk2, notes2 = image.draw_boxes(png2, boxes_focus, os.path.join(TD, "d2.png"), SCREEN)
     t.eq(ok2, 2, "尺寸不一致时仍要画（按比例换算）")
     t.ok(any("换算后绘制" in n for n in notes2), "尺寸不一致必须提示，不能默默缩放")
     t.ok(any("x×0.500000" in n and "y×0.500000" in n for n in notes2),
          "换算系数要逐轴报出（而不是只按宽度算一个）")
 
     # 宽高比不一致 → 不是相似变换，必须点明「对应关系不成立」，不许按单轴凑
-    ok5, sk5, notes5 = tv_shot.draw_boxes(png, boxes_focus, os.path.join(TD, "d5.png"),
+    ok5, sk5, notes5 = image.draw_boxes(png, boxes_focus, os.path.join(TD, "d5.png"),
                                           {"width": 1920, "height": 960})
     t.ok(any("两轴换算系数不相等" in n for n in notes5),
          "宽高比不一致（x×1.0 ≠ y×1.125）必须点明「不是相似变换」")
@@ -893,13 +939,13 @@ if has_pil:
 
     # 三种「画不出来/画不全」必须分得开，不许混成一句「落在画面外」：
     #   零面积（读数自身没有面积）≠ 真越界（读数超出画面）≠ 压屏幕外沿（栅格约定）
-    ok4, sk4, notes4 = tv_shot.draw_boxes(png, [(1900, 1000, 2000, 1100, "越界半", "reading")],
+    ok4, sk4, notes4 = image.draw_boxes(png, [(1900, 1000, 2000, 1100, "越界半", "reading")],
                                           os.path.join(TD, "d4.png"), SCREEN)
     t.eq((ok4, sk4), (1, 0), "部分越界的框仍要画（裁到边界）")
     t.ok(any("越出画面" in n and "2000" in n for n in notes4),
          "被裁掉多少必须报出来（读数没变，只是画不出）")
 
-    okZ, skZ, notesZ = tv_shot.draw_boxes(png, [(500, 300, 500, 400, "零宽", "reading")],
+    okZ, skZ, notesZ = image.draw_boxes(png, [(500, 300, 500, 400, "零宽", "reading")],
                                           os.path.join(TD, "dZ.png"), SCREEN)
     t.eq((okZ, skZ), (0, 1), "零面积的框画不出来")
     t.ok(any("零面积" in n for n in notesZ),
@@ -908,7 +954,7 @@ if has_pil:
 
     # 读数边界刚好等于屏幕宽/高（a11y 的半开区间写法）→ 只给总数，不逐条刷屏，
     # 但必须说清「画出的框在那两条边上比读数少 1 像素」这个栅格事实。
-    okE, skE, notesE = tv_shot.draw_boxes(
+    okE, skE, notesE = image.draw_boxes(
         png, [(0, 0, 1920, 1080, "全屏", "reading"), (10, 10, 1910, 1070, "内框", "reading")],
         os.path.join(TD, "dE.png"), SCREEN)
     t.eq((okE, skE), (2, 0), "压屏幕外沿的框照画")
@@ -922,7 +968,7 @@ if has_pil:
     t.eq(imE.getpixel((1919, 540)), red, "全屏框右边像素 = 1919（读数是 1920，半开区间）")
     t.eq(imE.getpixel((960, 1079)), red, "全屏框下边像素 = 1079（读数是 1080）")
 
-    ok3, sk3, notes3 = tv_shot.draw_boxes(png, [(5000, 5000, 5100, 5100, "越界框", "reading")],
+    ok3, sk3, notes3 = image.draw_boxes(png, [(5000, 5000, 5100, 5100, "越界框", "reading")],
                                           os.path.join(TD, "d3.png"), SCREEN)
     t.eq((ok3, sk3), (0, 1), "画面外的框不绘制")
     t.ok(any("完全落在画面外" in n for n in notes3), "画面外的框要说明")
@@ -935,8 +981,8 @@ if has_pil:
     blank = io.BytesIO()
     Image.new("RGB", (400, 300), (0, 0, 0)).save(blank, format="PNG")
     canvas = {"width": 400, "height": 300}
-    red = tv_shot.COLOR_READING
-    okX, skX, notesX = tv_shot.draw_boxes(
+    red = image.COLOR_READING
+    okX, skX, notesX = image.draw_boxes(
         blank.getvalue(), [(100, 120, 200, 180, "", "reading")],
         os.path.join(TD, "exact.png"), canvas)
     t.eq((okX, skX, notesX), (1, 0, []), "同尺寸下画框无提示、无跳过")
@@ -954,7 +1000,7 @@ if has_pil:
     # 带标签文字时，框线仍必须停在读数上：文字位置不得影响几何
     blank2 = io.BytesIO()
     Image.new("RGB", (400, 300), (0, 0, 0)).save(blank2, format="PNG")
-    tv_shot.draw_boxes(blank2.getvalue(), [(100, 120, 200, 180, "标签", "reading")],
+    image.draw_boxes(blank2.getvalue(), [(100, 120, 200, 180, "标签", "reading")],
                        os.path.join(TD, "label.png"), canvas)
     imL = Image.open(os.path.join(TD, "label.png")).convert("RGB")
     t.eq([imL.getpixel(p) for p in ((100, 150), (200, 150), (150, 120), (150, 180))],
@@ -963,7 +1009,7 @@ if has_pil:
     # 加宽：线带以读数为中线**对称**展开，中线不得离开读数
     blank3 = io.BytesIO()
     Image.new("RGB", (400, 300), (0, 0, 0)).save(blank3, format="PNG")
-    okW, skW, notesW = tv_shot.draw_boxes(
+    okW, skW, notesW = image.draw_boxes(
         blank3.getvalue(), [(100, 120, 200, 180, "", "reading")],
         os.path.join(TD, "w3.png"), canvas, width=3)
     im3 = Image.open(os.path.join(TD, "w3.png")).convert("RGB")
@@ -976,19 +1022,33 @@ else:
     print("  （跳过画框测试：未安装 Pillow）")
 
 # 职责边界：主脚本不截图、不按键；那两个动作各自只出现在自己的脚本里
-tree_src = open(os.path.join(HERE, "tv_tree.py"), "r", encoding="utf-8").read()
-shot_src = open(os.path.join(HERE, "tv_shot.py"), "r", encoding="utf-8").read()
-input_src = open(os.path.join(HERE, "tv_input.py"), "r", encoding="utf-8").read()
-t.ok("screencap" not in tree_src, "tv_tree.py 绝不截图（截图是 tv_shot.py 的事）")
-t.ok("input keyevent" not in tree_src, "tv_tree.py 绝不发按键（按键是 tv_input.py 的事）")
-t.ok("screencap" in shot_src, "截图要真的在 tv_shot.py 里实现")
-t.ok("input keyevent" in input_src, "发按键要真的在 tv_input.py 里实现")
+tree_src = open(os.path.join(HERE, "tvuitree", "application", "observation.py"), "r", encoding="utf-8").read()
+core_paths = [
+    os.path.join(HERE, "tvuitree", "domain", "tree", name)
+    for name in ("models.py", "parsing.py", "matching.py", "capture.py",
+                 "output.py", "pruning.py")
+]
+core_src = "\n".join(open(path, "r", encoding="utf-8").read() for path in core_paths)
+observe_src = open(os.path.join(HERE, "tvuitree", "domain", "observation.py"), "r", encoding="utf-8").read()
+cli_src = open(os.path.join(HERE, "tvuitree", "interfaces", "observe.py"), "r", encoding="utf-8").read()
+shot_src = open(os.path.join(HERE, "tvuitree", "infrastructure", "image.py"), "r", encoding="utf-8").read()
+input_src = open(os.path.join(HERE, "tvuitree", "application", "input.py"), "r", encoding="utf-8").read()
+t.ok("screencap" not in tree_src and "screencap" not in core_src,
+     "树采集实现绝不截图（截图是 tv_shot.py 的事）")
+t.ok("input keyevent" not in tree_src and "input keyevent" not in core_src,
+     "树采集实现绝不发按键（按键是 tv_input.py 的事）")
+t.ok("import tv_tree" not in observe_src and "from tv_tree" not in observe_src,
+     "观察实现直接依赖内部包，不反向导入兼容入口")
+t.ok("from tvuitree.application.observation import" in cli_src,
+     "CLI 与 MCP 共享内部观察 API")
+t.ok("screencap" in shot_src, "截图要在 infrastructure/image.py 里实现")
+t.ok("input keyevent" in input_src, "发按键要在 application/input.py 里实现")
 t.ok("fetch_u2" not in shot_src and "parse_dumpsys_top" not in shot_src,
      "tv_shot.py 不自己取树（它只读 JSON）")
 
 # 画框的立场必须写在代码里，并挡住「靠经验修偏差」的两种典型写法复发
 t.ok("逐像素对齐" in shot_src and "不加偏移" in shot_src,
-     "几何约定要写在 tv_shot.py 里：框 = 读数，逐像素对齐、不加偏移")
+     "几何约定要写在 infrastructure/image.py 里：框 = 读数，逐像素对齐、不加偏移")
 t.ok("abs(sx - 1.0) > 0.01" not in shot_src,
      "不许再用「差不到 1% 就当没差」的换算阈值")
 t.ok("0.9 <= kx" not in shot_src and "<= 1.2" not in shot_src,
@@ -1003,7 +1063,7 @@ if os.path.exists(readme):
     md = open(readme, "r", encoding="utf-8").read()
     for name in SW:
         t.ok(name in md, f"README 要写到剪枝开关 {name}（文档与代码同步）")
-    for f in ("tv_tree.py", "tv_input.py", "tv_shot.py", "selftest_tree.py"):
+    for f in ("main.py", "tvuitree/", "domain/", "application/", "infrastructure/", "interfaces/", "tests/"):
         t.ok(f in md, f"README 要提到 {f}")
     for phrase in ("画框约定", "--width", "不加偏移", "逐像素", "不补偿"):
         t.ok(phrase in md,
@@ -1011,6 +1071,78 @@ if os.path.exists(readme):
 else:
     print("  （跳过 README 同步检查：文件不存在）")
 
+
+
+# ================================================================== 8. CLI 与 MCP 共享采集
+
+t.group("8. CLI 与 MCP 使用同一观察和完整树结果")
+
+from types import SimpleNamespace
+from tvuitree.infrastructure import snapshot as snapshot_adapter
+from tvuitree.interfaces import mcp as mcp_interface
+
+_original_snapshot = snapshot_adapter.snapshot
+_original_observe_connect = observe_interface.connect_for_cli
+_original_tree_connect = tree_interface.connect_for_cli
+_original_mcp_connect = mcp_interface._connect
+_fake_device = SimpleNamespace(serial="fixture")
+
+
+def _fixture_snapshot(adb, serial, save_raw, quiet, use_dumpsys=True, anomalies=None):
+    blocks = parsing.parse_dumpsys_top(DUMPSYS, anomalies)
+    return {
+        "dev": {"model": "SELFTEST", "release": "14", "sdk": "34"},
+        "screen": SCREEN, "win": WIN, "xml": A11Y,
+        "u2_meta": {"version": "3.7.0", "info": {"displayWidth": 1920, "displayHeight": 1080}},
+        "blocks": blocks, "block": blocks[0] if use_dumpsys else None,
+        "pkg": PKG if use_dumpsys else None,
+        "pick_note": None, "drift": False, "drift_detail": None,
+    }
+
+
+def _without_capture_time(value: dict) -> dict:
+    result = clean(value)
+    result.pop("captured_at", None)
+    return result
+
+
+try:
+    snapshot_adapter.snapshot = _fixture_snapshot
+    observe_interface.connect_for_cli = lambda args: _fake_device
+    tree_interface.connect_for_cli = lambda args: _fake_device
+    mcp_interface._connect = lambda **kwargs: _fake_device
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        cli_observe_rc = cli.main(["observe", "--out", os.path.join(TD, "shared_observe.json")])
+    with open(os.path.join(TD, "shared_observe.json"), encoding="utf-8") as source:
+        cli_observation = json.load(source)
+    mcp_observation = mcp_interface.observe_tv()
+    t.eq(cli_observe_rc, 0, "CLI 实时观察退出码")
+    t.eq(_without_capture_time(cli_observation), _without_capture_time(mcp_observation),
+         "CLI 与 MCP 对同一快照返回相同观察 JSON")
+
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        cli_tree_rc = cli.main(["tree", "--out", os.path.join(TD, "shared_tree.json")])
+    with open(os.path.join(TD, "shared_tree.json"), encoding="utf-8") as source:
+        cli_tree = json.load(source)
+    mcp_tree = mcp_interface.get_full_tree()
+    t.eq(cli_tree_rc, 0, "CLI 完整树退出码")
+    t.eq(_without_capture_time(cli_tree), _without_capture_time(mcp_tree),
+         "CLI 与 MCP 对同一快照返回相同完整树 JSON")
+
+    def _failed_snapshot(*args, **kwargs):
+        raise adb.AdbError("fixture capture failed")
+
+    snapshot_adapter.snapshot = _failed_snapshot
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        failure_rc = cli.main(["observe"])
+    t.eq(failure_rc, 3, "采集失败时 CLI 保留退出码 3")
+    t.eq(mcp_interface.observe_tv()["focus"]["status"], "error",
+         "采集失败时 MCP 返回结构化 error 状态")
+finally:
+    snapshot_adapter.snapshot = _original_snapshot
+    observe_interface.connect_for_cli = _original_observe_connect
+    tree_interface.connect_for_cli = _original_tree_connect
+    mcp_interface._connect = _original_mcp_connect
 
 # ================================================================== 收尾
 

@@ -1,38 +1,25 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
+## Structure
 
-This repository is a small, script-based Python toolkit for inspecting Android TV UI trees:
+The repository has one root Python entry point, `main.py`. It dispatches `observe`, `tree`, `input`, `shot`, and read-only `mcp` commands. `tvuitree/interfaces/` owns protocol, CLI arguments, and terminal output; `tvuitree/application/` coordinates use cases; `tvuitree/domain/` owns pure tree, observation, and screenshot rules; `tvuitree/infrastructure/` owns ADB, uiautomator2, files, and PNG drawing. `tests/selftest_tree.py` is the offline regression suite. `_temp/` contains investigation artifacts.
 
-- `tv_tree.py` is the core collector. It combines the accessibility tree with `dumpsys activity top` and writes full or pruned JSON.
-- `tv_adb.py` contains shared ADB discovery, connection, command execution, and device metadata logic.
-- `tv_input.py` sends remote-control key events for manual experiments.
-- `tv_shot.py` captures screenshots and draws tree-derived rectangles for visual verification.
-- `selftest_tree.py` contains offline regression tests and does not require a device or network.
-- `README.md` is the behavioral reference; `_temp/` contains generated investigation artifacts and should not be treated as source.
+Keep dependencies flowing inward: domain code must not access devices, files, the terminal, MCP, Pillow, or uiautomator2. CLI and MCP must use the same application observation service. Preserve explicit R0–R3 evidence and the distinction between source readings and derived values.
 
-Keep new functionality in the smallest appropriate module. Preserve the boundary that tree collection, input, and screenshot verification are separate workflows exchanging JSON files.
+## Checks
 
-## Build, Test, and Development Commands
-
-There is no build system or package metadata. From the repository root, use:
+Run from the repository root:
 
 ```powershell
-python -m py_compile tv_tree.py tv_adb.py tv_input.py tv_shot.py selftest_tree.py
-python -m pyflakes tv_tree.py tv_adb.py tv_input.py tv_shot.py selftest_tree.py
-python selftest_tree.py
+$pythonFiles = @('main.py') + (Get-ChildItem tvuitree, tests -Filter '*.py' -Recurse | ForEach-Object { $_.FullName })
+python -m py_compile $pythonFiles
+python -m pyflakes $pythonFiles
+python tests/selftest_tree.py
+git diff --check
 ```
 
-The first command checks syntax, the second checks static issues when `pyflakes` is installed, and the third runs the offline behavioral suite. For device work, install `uiautomator2`; install `pillow` only when using screenshot drawing. Example: `python tv_tree.py --from-json full.json --mode slim --out slim.json` performs an offline re-prune.
+Offline tests need no TV, ADB connection, or network. Use Python 3.10+, four-space indentation, UTF-8, and type hints in new code. Keep JSON fields, CLI exit behavior, diagnostics, MCP schemas, and screenshot coordinate semantics stable unless the change is intentional and documented. Update README for interface changes. Run a real TV observation when a usable device is available.
 
-## Coding Style & Naming Conventions
+## Contribution
 
-Use Python 3, four-space indentation, UTF-8 source files, and type hints for new or modified code. Follow the existing `snake_case` names for functions and modules, `UPPER_SNAKE_CASE` for constants, and focused module docstrings. Keep CLI exit-code behavior and diagnostic wording stable unless the README and tests are updated together. Do not silently guess coordinates or node matches; preserve the project’s explicit R0–R3 matching and read-value versus derived-value distinction.
-
-## Testing Guidelines
-
-Tests are custom assertions in `selftest_tree.py`, not pytest tests. Add deterministic offline fixtures and assertions for parser, pruning, CLI, or geometry changes; avoid requiring a TV, ADB connection, or network. Run the full self-test and syntax checks before submitting changes.
-
-## Commit & Pull Request Guidelines
-
-This checkout has no `.git` directory, so repository-specific commit conventions cannot be verified. Use concise, imperative commit subjects when committing elsewhere (for example, `Fix slim-tree pruning order`). Pull requests should explain behavior changes, list validation commands and results, update `README.md` for CLI or output changes, and include before/after JSON or screenshots when geometry or rendering behavior changes.
+Use concise imperative commit subjects. Explain behavior changes and validation results in pull requests, with before/after JSON or screenshots for geometry or rendering changes.

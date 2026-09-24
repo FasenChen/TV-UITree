@@ -1,332 +1,326 @@
 # tv-uitree
 
-**一句话**：`tv_tree.py` 从 Android TV 抓控件树，输出**全量 JSON** 和一份由它剪枝得到的**精简 JSON**（剪什么由参数控制）；按键、截图画框各自是独立脚本，**与取树无关**。
+`tv-uitree` 为 TV 自助测试模型提供当前界面的结构化观察结果。模型调用观察工具后，可以知道当前焦点在哪、焦点周围有哪些控件、这次判断依据哪些数据，以及哪些信息仍不确定。本项目也保留完整控件树、遥控器按键和截图核对工具，供开发与人工排查使用。
 
-```
-tv_tree.py        取控件树 → JSON       ← 本项目的核心，唯一的取数入口
-tv_input.py       发遥控器按键          ← 手工测试辅助，不参与取树
-tv_shot.py        截图 + 在图上画框     ← 验证辅助，不参与取树
-selftest_tree.py  离线自检              ← 不连设备，锁住配对与剪枝行为
-```
+项目通过根目录唯一的 main.py 启动，没有打包或构建步骤。
 
-三者互不调用，只用 JSON 文件交接。取树**不需要**按任何键，也**不需要**截图。
+## 快速开始
 
----
+需要 Python 3.10+、ADB 和已开启 ADB 调试的 TV。在仓库根目录执行：
 
-## 1. 快速开始
-
-准备（只需一次）：
-
-```bash
-python -m pip install uiautomator2          # tv_tree.py 的唯一硬依赖
-python -m pip install pillow                # 可选，只有 tv_shot.py 画框要用
-adb connect 192.168.31.102:5555             # 电视需已打开 ADB 调试
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+$tvAddress = '192.168.1.147:5555'  # 改为目标电视的地址
+adb connect $tvAddress
+python main.py observe --address $tvAddress --out observe.json
 ```
 
-取树：
+可用 `--max-nodes` 限制页面摘要节点数（默认 80）。打开 `observe.json`，先看 `focus.status` 和 `focus.node`，再看 `focus.context`、`page.nodes` 与 `warnings`。未指定 `--out` 时，JSON 写到标准输出。默认目标是 `192.168.1.147:5555`；接入其他设备时显式传入 `--address` 或 `--serial`。
 
-```bash
-python tv_tree.py --out full.json                    # 全量 JSON（默认模式）
-python tv_tree.py --mode slim --out slim.json        # 精简 JSON
-python tv_tree.py --mode slim --keep empty --out s.json    # 精简 + 把空节点加回来
-python tv_tree.py --prune-list                       # 看剪枝开关表（不连设备）
-python tv_tree.py --from-json full.json --mode slim --out s.json   # 离线重剪，不连设备
+如果手头已有本工具产生的全量 JSON，可以不连接 TV：
+
+```powershell
+python main.py observe --from-json full.json --out observe.json
 ```
 
-辅助脚本：
+## 模型观察结果
 
-```bash
-python tv_input.py DOWN,RIGHT,OK --delay 0.6         # 发按键
-python tv_input.py --list                            # 看可用按键短名
-python tv_shot.py --json full.json --out shot.png    # 截图并画焦点框
-python tv_shot.py --json full.json --source both --out shot_both.png   # 两种坐标都画（红实线 / 蓝虚线）
-python tv_shot.py --json full.json --draw all --width 2 --out shot_all.png  # 画所有矩形，线加粗
-python tv_shot.py --json full.json --image old.png --out o.png         # 用已有截图，不连设备
+`--mode observe` 输出 `tv-observation/v1`。这是给模型使用的页面摘要，默认最多列出 80 个有信息的页面节点；完整树可按需另取。以下是字段形状示例，具体值来自当次采集：
+
+```json
+{
+  "schema_version": "tv-observation/v1",
+  "mode": "observe",
+  "focus": {
+    "status": "found",
+    "candidate_count": 1,
+    "candidates": [
+      {"path": "0/0", "source": "a11y", "class": "android.widget.TextView", "labels": ["设置"]}
+    ],
+    "node": {"path": "0/0", "source": "a11y", "class": "android.widget.TextView", "labels": ["设置"]},
+    "context": {
+      "ancestors": [{"path": "0", "source": "a11y", "class": "android.view.ViewGroup", "children_count": 1}],
+      "siblings": [],
+      "children": []
+    }
+  },
+  "page": {
+    "package": "com.example.tv",
+    "node_count": 2,
+    "summary_node_count": 1,
+    "summary_truncated": false,
+    "nodes": [
+      {"path": "0/0", "source": "a11y", "class": "android.widget.TextView", "labels": ["设置"]}
+    ]
+  },
+  "evidence": {"align_rules": {}, "align_stats": {}, "source_consistency": {}},
+  "warnings": [],
+  "full_tree_available": true
+}
 ```
 
-验收：
+示例只展示部分字段；实际结果还包含 `captured_at`、`device`、`screen`、`window` 和 `evidence.segment_match_note`。
 
-```bash
-python selftest_tree.py                              # 离线自检，通过 → 退出码 0
+| 字段 | 如何使用 |
+|---|---|
+| `focus.status` | `found` 表示唯一焦点；`ambiguous` 表示多个候选；`missing` 表示未读到焦点；`error` 表示采集失败。 |
+| `focus.node` / `focus.context` | `found` 时给出焦点节点及祖先、同级节点和子节点。 |
+| `focus.candidates` | 保留所有候选；`ambiguous` 时不替模型选一个。 |
+| `page.nodes` | 精简的页面节点列表，包含文字、资源 ID 或可操作属性。`summary_truncated=true` 表示列表达到上限。 |
+| `evidence` / `warnings` | 记录配对规则、统计、画面漂移、窗口段回退和解析告警；出现告警时应重新观察或查看完整树。 |
+
+节点的 `path` 是**本次快照内**的树位置，不能当成跨页面或跨采集的稳定标识。`actions` 描述节点读到的可操作属性，不表示遥控器按键后一定会跳到该节点。`bounds_kind=screen_reading` 对应 a11y 的屏幕坐标读数；`bounds_kind=local_reading` 对应 dumpsys 相对父容器的布局坐标读数，两者不能直接混用。
+
+`error` 是 MCP 的 `observe_tv` 在采集失败时返回的状态；CLI 采集失败时打印原因并以退出码 `3` 结束，不输出观察 JSON。
+
+## 通过 MCP 接入模型
+
+`python main.py mcp` 启动只读 stdio MCP 服务。在仓库根目录运行下面的命令，取得当前机器上的绝对路径：
+
+```powershell
+(Resolve-Path .\.venv\Scripts\python.exe).Path
+(Resolve-Path .\main.py).Path
 ```
 
-本工作区已有一个装好依赖的虚拟环境，不想动系统环境可以直接用它的解释器：
+在 MCP 客户端中选择 stdio 传输，将第一条路径设为启动命令，第二条路径设为第一个参数，并将 `mcp` 设为第二个参数，工作目录设为仓库根目录。启动后服务等待客户端请求，终端没有页面输出是正常现象；客户端应能列出 `observe_tv` 和 `get_full_tree`。若启动时报缺少 `mcp`，在仓库根目录执行 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`。
 
-```
-C:\Users\LazyAngel\.workbuddy\binaries\python\envs\tvuitree\Scripts\python.exe
-```
-
-本机实测环境（`ADB` 默认为 `192.168.31.102:5555`）：MOKA R6G / Android 14 / SDK 34 / 1920×1080 @320dpi / userdebug；设备属性可用 `adb shell getprop` 复查。
-
----
-
-## 2. 三个脚本的分工
-
-| 脚本 | 负责 | **不**负责 |
+| 工具 | 返回内容 | 常用参数 |
 |---|---|---|
-| `tv_tree.py` | 抓 a11y 层次 + `dumpsys activity top`，按 R0–R3 合并成一棵树，输出 JSON | 按键、截图、看画面 |
-| `tv_input.py` | 往设备发 `input keyevent` | 取树、判断焦点在哪 |
-| `tv_shot.py` | `screencap` 截图，读**已有**的树 JSON 画框 | 取树（它只读 JSON） |
+| `observe_tv` | 焦点、页面摘要和判断证据 | `address` 或 `serial`、`no_dumpsys`、`max_nodes` |
+| `get_full_tree` | 当次采集的完整控件树 | `address` 或 `serial`、`no_dumpsys` |
 
-设备接入参数（`--host/--port/--serial/--address/--adb/--no-connect/--no-color/--quiet`）三个脚本共用一份定义（`tv_adb.py`），不存在两套。
+### MCP 工具参数
 
-**退出码**：`0` 成功 / `2` 用法错误（参数不合法、文件读不了）/ `3` 设备或取数失败。
+两个工具都使用同一组设备连接参数。每次调用只选择一种目标方式即可，解析优先级为：`serial` > `address` > `host` + `port`。
 
-### 2.1 `tv_shot.py` 画框约定：框 = 读数，偏差**原样暴露**
+| 参数 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `host` | string | `192.168.1.147` | 电视的 IP 或主机名。仅在没有 `serial`、`address` 时使用。 |
+| `port` | integer | `5555` | ADB TCP 端口。与 `host` 一起组成 `host:port`，仅在没有 `serial`、`address` 时使用。 |
+| `serial` | string 或 null | `null` | 直接指定 `adb devices` 中的 serial，可填 USB serial、模拟器 serial 或 `192.168.1.147:5555`。指定后优先于其他目标参数。 |
+| `address` | string 或 null | `null` | 直接指定完整地址，例如 `192.168.1.147:5555`。没有 `serial` 时优先于 `host` + `port`。 |
+| `adb` | string 或 null | `null` | 运行 MCP 服务的电脑上的 adb 可执行文件路径，例如 `C:\Android\Sdk\platform-tools\adb.exe`。不填时按 PATH 和常见 SDK 目录查找。 |
+| `no_connect` | boolean | `false` | 为 `true` 时不执行 `adb connect`，但仍会检查目标是否已经出现在 `adb devices` 中。适合已提前连接的设备。 |
+| `no_dumpsys` | boolean | `false` | 为 `true` 时只读取 uiautomator2 无障碍树；为 `false` 时同时读取 `dumpsys activity top`，用于补充 View 节点和 R0–R3 配对证据。 |
 
-`tv_shot.py` 是**验证工具**，它的全部价值在于把「控件树算出来的位置」与「画面上的实际位置」的差异摆在眼前。任何让框「看起来更贴合焦点」的修饰，都是在擦掉要验证的东西。所以：
+`observe_tv` 另外支持以下参数：
 
-| 规矩 | 具体做法 |
+| 参数 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `max_nodes` | integer | `80` | `page.nodes` 的最大摘要节点数。只限制页面摘要，不会删除 `focus.context`、焦点候选或 `evidence`；小于 1 的值会按 1 处理。 |
+
+#### `observe_tv` 调用示例
+
+只使用当前 TV 的默认连接地址：
+
+```json
+{
+  "address": "192.168.1.147:5555"
+}
+```
+
+同时读取双源数据，并限制页面摘要为 20 个节点：
+
+```json
+{
+  "address": "192.168.1.147:5555",
+  "no_connect": false,
+  "no_dumpsys": false,
+  "max_nodes": 20
+}
+```
+
+设备已经通过 `adb connect` 连接时，禁止工具再次执行连接：
+
+```json
+{
+  "serial": "192.168.1.147:5555",
+  "no_connect": true,
+  "max_nodes": 20
+}
+```
+
+只读取无障碍树，适合排查 dumpsys 不可用的页面：
+
+```json
+{
+  "address": "192.168.1.147:5555",
+  "no_dumpsys": true,
+  "max_nodes": 20
+}
+```
+
+#### `get_full_tree` 调用示例
+
+`get_full_tree` 使用设备连接参数和 `no_dumpsys`，不接受 `max_nodes`，返回当次采集的完整树：
+
+```json
+{
+  "address": "192.168.1.147:5555",
+  "no_dumpsys": false
+}
+```
+
+如需只检查 a11y 原始树：
+
+```json
+{
+  "address": "192.168.1.147:5555",
+  "no_dumpsys": true
+}
+```
+
+MCP 工具没有 `--from-json`、`--out` 或按键参数；每次调用都会重新读取设备。`observe_tv` 成功时返回 `schema_version=tv-observation/v1`，失败时仍返回结构化 JSON，并将 `focus.status` 设为 `error`。`get_full_tree` 失败时返回包含 `error`、`error_type` 和 `mode=full` 的 JSON。两个工具都不会发送遥控器按键或抓取截图。
+
+## 用 MCP Inspector 网页调试
+
+仓库提供了一个可重复启动的 PowerShell 包装脚本，用官方 [MCP Inspector](https://github.com/modelcontextprotocol/inspector) 打开本地网页调试界面。Inspector 需要 Node.js 22.19 或更高版本；项目本身仍由 `.venv` 中的 Python 启动。
+
+在仓库根目录运行：
+
+```powershell
+.\scripts\start_mcp_inspector.ps1
+```
+
+终端会打印类似下面的地址：
+
+```text
+http://127.0.0.1:6274?MCP_INSPECTOR_API_TOKEN=...
+```
+
+复制完整地址到浏览器。Inspector 的服务进程必须保持运行；关闭启动它的终端会同时停止网页调试服务。也可以直接使用官方命令：
+
+```powershell
+npx -y @modelcontextprotocol/inspector .\.venv\Scripts\python.exe .\main.py mcp
+```
+
+进入网页后，确认连接类型为 `STDIO`。如果界面要求手工填写启动信息，使用下面的值：
+
+| 字段 | 值 |
 |---|---|
-| **框的几何 = 读数，逐像素对齐** | 不加偏移、不做容差。默认 `--width 1`，线所占像素**就是**读数所指的那一行/列；框线外再一格必须是干净底色 |
-| **唯一允许的变换是分辨率换算** | 控件树坐标基于 `wm size`，截图是物理像素。`x` / `y` **各算一个**系数并打印出来；两轴不等（宽高比不一致）时点明「这已不是相似变换，画出的框与读数的对应关系**不成立**」，不许按单轴凑 |
-| **两个来源只靠样式区分** | 读数 = 红实线，派生 = 蓝虚线。**绝不**靠几何偏移区分 —— 那会把真实差值伪装成样式差异 |
-| **画不出来的照实说，且分得清性质** | 三种情况分开报：**零面积**（读数自身没有面积）／**真越界**（读数超出画面，逐条报原读数与裁后坐标）／**压屏幕外沿**（只给总数）。**「画不出来」本身是信息，不是要抹平的噪声** |
-| **说明文字不参与坐标** | 标签画在框上方，只为可读；判定「框落在哪」只看框线 |
-| **判定成因只用读数的算术** | 中心是否严格重合 → 比 `l+r`、`t+b` 的整数；是否等比 → 交叉相乘 `dd_w*da_h == dd_h*da_w` 的整数等式。**不设**「0.9~1.2 就算缩放」这类经验区间：真机两面板页那 1008 像素的滚动偏移**同样同心**，区间一宽就会被误报成「缩放动效」，恰好掩盖要查的问题 |
+| Command | 仓库内 `.venv\Scripts\python.exe` 的绝对路径 |
+| Arguments | 仓库根目录 `main.py` 的绝对路径、`mcp` |
+| Working directory | 仓库根目录 |
+| Environment | 通常留空；设备地址在工具参数中传入 |
 
-一句话：**读数不修正、偏差不补偿、画不出来的不假装。** 框画得「不完美」是结果，不是缺陷 —— 差异本身就是这个工具要交付的东西。
+连接成功后，在工具列表中选择 `observe_tv` 或 `get_full_tree`。当前 TV 可以这样填写参数：
 
-> **a11y 的 `bounds` 是半开区间**（Android 约定）：`[0,0][1920,1080]` 表示覆盖整屏，右/下边界**不含**在矩形内，末像素是 `1919`/`1079`。所以全屏框画出来时右边和下边比读数少 1 像素 —— 这是约定，不是偏差。`tv_shot.py` 会把它汇总成一条提示，不与「读数真的越出画面」混在一起。
+```json
+{
+  "address": "192.168.1.147:5555",
+  "no_dumpsys": false,
+  "max_nodes": 20
+}
+```
 
-加粗用 `--width N`：线带以读数为**中线对称**展开，中线永不离开读数。**不要**用加宽去「贴近」焦点。
+`get_full_tree` 不接受 `max_nodes`；如果只验证 a11y 读取，可以把 `no_dumpsys` 设为 `true`。Inspector 网页本身只调试 MCP 协议和工具参数，两个工具仍然是只读采集，不会发送遥控器按键。
 
-这条约定在 `selftest_tree.py` 里有像素级断言（框上四边必须是画的颜色、再往外一格必须干净），并在源码里静态挡住三种复发写法：`abs(sx-1.0)>0.01` 的换算阈值、`0.9<=kx<=1.2` 的经验区间、把框向外膨胀的 `cl-w`。
+stdio 服务的标准输出专用于 MCP 协议，诊断信息写入标准错误；不要在 `main.py mcp` 服务中增加普通标准输出日志，否则可能导致 Inspector 连接失败。更完整的协议、CLI 和网页选项见 [MCP Inspector 官方文档](https://github.com/modelcontextprotocol/docs/blob/main/docs/tools/inspector.mdx)。
 
----
+## 其他命令
 
-## 3. 输出怎么读
+```powershell
+$tvAddress = '192.168.1.147:5555'  # 改为目标电视的地址
+python main.py tree --address $tvAddress --mode full --out full.json
+python main.py tree --address $tvAddress --mode slim --out slim.json
+python main.py tree --from-json full.json --mode slim --out slim.json
+python main.py tree --mode slim --keep empty,offscreen --out kept.json
+python main.py tree --prune-list
 
-### 3.1 顶层字段
+python main.py input DOWN,RIGHT,OK --delay 0.6
+python main.py shot --json full.json --source both --out focus.png
+```
 
-| 字段 | 含义 |
+`full` 是未剪枝的一体式 JSON，`slim` 是对同一份全量树进行剪枝，`observe` 是给模型的焦点与页面摘要。`--from-json` 应传入已有的全量 JSON，并用于 `tree --mode slim` 或 `observe`；程序只检查输入包含 `tree` 列表，已剪掉的信息无法从 `slim` 恢复。`--keep` 只用于 `slim`。`--no-dumpsys` 可明确选择只采集 a11y；正常双源采集失败时不会悄悄切换到单源结果。CLI 用法或文件错误返回退出码 `2`，设备或采集失败返回 `3`。不传子命令时只显示帮助，不连接 TV。
+
+`slim` 默认启用八个剪枝开关：
+
+| 开关 | 省略的内容 |
 |---|---|
-| `mode` | `full` / `slim` |
-| `captured_at` | 采集时刻。`tv_shot.py` 用它判断「截图」与「树」是不是同一时刻 |
-| `primary_source` / `supplement_source` | 主源固定是 `uiautomator2 (a11y)`；补充源是 `dumpsys activity top`，`--no-dumpsys` 时为 `null` |
-| `device` / `screen` / `window` / `segment` | 机型属性、屏幕尺寸与密度、前台窗口、选中的 Activity 段包名 |
-| `source_consistency` | 抓了两次 dumpsys，两者**我们消费的那部分**是否一致。`drift: true` = 画面在动，配对可信度下降 |
-| `coordinate_note` | 四种坐标各自是什么口径（必读） |
-| `align_rules` / `align_stats` | 配对规则原文 + 这次各规则命中多少、几何校验各档多少 |
-| `tree` | 一体式树（见 §3.2） |
-| `dumpsys_only` | 「位次无法唯一确定」的 dumpsys 节点，单独列出，不塞进树里 |
-| `focus` | a11y 报告的焦点节点：类名、res-id、屏幕坐标、文字、祖先路径 |
+| `gone` | GONE 节点及其子树 |
+| `zeroarea` | 零面积节点及其子树 |
+| `offscreen` | 屏幕外节点及其子树 |
+| `empty` | 没有有效信息的节点及其子树 |
+| `derived` | 派生坐标字段 |
+| `defaults` | 取默认值的布尔字段 |
+| `meta` | 配对与解析元数据 |
+| `instance` | View 实例标识 |
 
-### 3.2 节点字段：两种来源，坐标口径不同
+`--keep <开关>` 关闭对应剪枝；`--keep all` 保留全部内容。每个节点只由一个树级开关认领，具体顺序和本次剪枝数量可通过 `--prune-list` 及输出中的 `slim` 字段检查。
 
-| | `source: "a11y"` | `source: "dumpsys"` |
-|---|---|---|
-| 怎么来的 | 主源直接读到的节点 | a11y 没收录、位次由 R3 唯一确定后补入的节点 |
-| 坐标 | `bounds_screen`——**屏幕上真实可见的矩形**，读数 | `bounds_local`——**相对父容器**的布局矩形，读数 |
-| 派生坐标 | `dumpsys.bounds_abs_unclipped`、`dumpsys.pred_visible_rect` | `bounds_abs_unclipped`、`pred_visible_rect` |
-| 文字 | `text` / `content_desc` / `hint` | **没有**（ViewDebug 不调 `getText()`，本工具也不跨源回填） |
-| 配对信息 | `geom_check`、`dumpsys.match_reason` | `position_by`、`why_not_in_a11y` |
+## 数据从哪里来
 
-两条硬规矩：
+采集使用两个来源：`uiautomator2` 读取 a11y（无障碍）树，提供文字、焦点和屏幕可见矩形；`dumpsys activity top` 提供 Activity 的 View 层次、布局矩形及 a11y 未收录的节点。两次 dumpsys 中实际使用的层次行会比较；`source_consistency.drift=true` 表示采集期间界面发生变化。
 
-1. **读数与派生值分开**。带 `_abs_` / `_unclipped` / `pred_` 的都是**算出来的**，不是读出来的；工具不会把派生值冒充读数。
-2. **dumpsys 侧的 res-id 原样输出**（`app:id/x`），归一化后的值另放 `resource_id_normalized`，不覆盖原值。
+Android 16 的 ViewDebug 可能把外层名称写成 `DecorView{...}[MainSettings]`。解析器同时支持名称位于实例块前后的两种格式，避免整段 View Hierarchy 被误判为空。
 
----
+两棵树只按明确的 R0–R3 规则配对：
 
-## 4. 精简版：剪枝开关与 `--keep`
-
-精简 JSON 是**在全量 JSON 上剪枝**得到的同一棵树 —— 不是第二条采集路径。所以两种模式表达的是同一批读数，差别只在「留多少」。
-
-8 个开关，默认**全部执行剪枝**：
-
-| 开关 | 作用域 | 默认剪掉什么 |
-|---|---|---|
-| `gone` | 树 | `visibility=GONE` 的节点（只可能在 dumpsys 侧，a11y 根本不收录） |
-| `zeroarea` | 树 | 自身布局矩形为零面积的节点 |
-| `offscreen` | 树 | 可见区域与屏幕无交集的节点 |
-| `empty` | 树 | 自身与整棵子树都没有任何信息的节点（无文字/描述/提示、无 res-id、不可点击/聚焦/长按/滚动/勾选） |
-| `derived` | 字段 | 派生量：`bounds_abs_unclipped`、`pred_visible_rect` |
-| `defaults` | 字段 | 取默认值的布尔字段（`false` 一律省略，`enabled`/`visible`/`visible_to_user` 的 `true` 省略） |
-| `meta` | 字段 | 对齐元数据：`geom_check`/`match_reason`/`why_not_in_a11y`/`position_by`/`note`，以及顶层的 `coordinate_note`/`align_rules`/`align_stats`/`tree_note` |
-| `instance` | 字段 | 实例标识：`view_hash`/`id_hex`/`outer`/`aid`/`drawing_order` |
-
-被剪的是**整棵子树**：一个节点被剪，它的后代一并剪掉。理由是坐标口径 —— 子节点的 `bounds_local` 是**相对该节点**的，节点没了，子节点的坐标就无法解释。
-
-### 4.1 `--keep` 的语义是确定的
-
-`--keep <开关>` = **把那个开关关掉**，把那类信息整类加回来。
-
-```bash
-python tv_tree.py --mode slim --keep empty            # 保留空节点
-python tv_tree.py --mode slim --keep gone,offscreen   # 保留 GONE + 屏外
-python tv_tree.py --mode slim --keep all              # 一个都不剪 → 等于全量
-```
-
-能这么用，是因为**每个节点只由一个开关认领**，按固定优先序先命中先认领：
-
-```
-gone → zeroarea → offscreen → empty
-```
-
-这个顺序不是随手定的。真机上 GONE 的 View 几乎都是零面积（`G.E...... 0,0-0,0`）；如果没有「一个节点只归一个开关」这条规矩，`--keep gone` 把 GONE 节点放过之后会立刻被 `zeroarea` 认领剪掉 —— 节点数一个不变，开关表里写着「可保留」的选项**实际不起作用**，而输出上完全看不出来。`selftest_tree.py` 用「`--keep gone` 必须得到 7 个节点而不是 6」把这条钉死。
-
-`--keep` 只在 `--mode slim` 下有意义；配合 `--mode full` 用会直接报错（退出码 2），不会静默忽略；开关名写错同样报错。
-
-### 4.2 输出里的自述
-
-精简 JSON 的 `slim` 字段把这次剪枝讲清楚：`switches`（哪些开关执行了剪枝）、`pruned_nodes`（各开关剪掉多少节点，含后代）、`nodes`（剪前/剪后节点数）、`switch_meaning`、`ownership`（认领规则）、`field_defaults`（省略即默认值，默认值表在这里）。
-
----
-
-## 5. 两个数据源与 R0–R3 配对
-
-### 5.1 各自能拿到什么
-
-| | a11y（主源，必需） | `dumpsys activity top`（补充源） |
-|---|---|---|
-| 文字 | 有（`text`/`content-desc`/`hint`） | **没有** |
-| 坐标 | 屏幕绝对坐标，**屏幕上真实可见的矩形** | 相对父容器的布局矩形；**没有**绝对坐标 |
-| 可见性 | 只收录可见、有面积的节点 | 有 `V`/`G` 标志，能看到 GONE 与屏外节点 |
-| 其他 | 21 个属性 | flags1/flags2、实例 hash、无障碍 view id |
-| 短板 | 无 GONE、无屏外、无实例标识；**自定义类名会被替换成框架类名** | 可寻址性差（应用资源 id 会被 R8 混淆）；**只覆盖承载 Activity 的窗口** |
-
-最后一条要特别注意：`dumpsys activity top` 只输出承载 Activity 的窗口的视图树。本机 display 0 有 5 个窗口，只有 2 个有 View Hierarchy。当前台焦点落在对话框/输入法/壁纸等独立窗口上时，dump 里根本没有它的树 —— 这时工具会在 `segment_match_note` 里明说用的是回退段、不保证对应当前画面。
-
-**a11y 拿不到就报错退出**（退出码 3），不会静默退回单一数据源。否则同一条命令会时对时错，比直接失败更坏。
-
-### 5.2 合并规则（不是坐标猜测）
-
-| 规则 | 成立条件 |
+| 规则 | 依据 |
 |---|---|
-| `R0` root | 两侧各唯一根 → 同一窗口根 |
-| `R1` geom | `pred_visible_rect(view) == a11y bounds` 且 res-id/class 谓词成立且**候选唯一** |
-| `R2` focus | 两侧各自唯一持焦点节点，且 class 谓词成立 |
-| `R3` seq | 父节点已配对时，a11y 子序列到 view 子序列的**保序全注入解唯一**才采用；多解（歧义）或零解一律拒绝并记进 `align_stats.seq_refused` |
+| R0 | 两侧唯一根节点 |
+| R1 | 预测可见矩形、资源 ID 和类名条件同时满足，且候选唯一 |
+| R2 | 两侧各有唯一焦点节点，且类名条件满足 |
+| R3 | 已配对的父节点下，子节点保序映射只有唯一解 |
 
-两个谓词：
+无法唯一配对的 dumpsys 节点保留在全量 JSON 的 `dumpsys_only`，不猜它在 a11y 树中的位置。a11y 的 `bounds_screen` 和 dumpsys 的 `bounds_local` 是各自数据源的**读数**；`bounds_abs_unclipped`、`pred_visible_rect` 是**派生值**。后者受滚动偏移等限制，不能当作真实屏幕坐标。`dumpsys activity top` 也无法覆盖所有独立窗口，例如某些对话框和输入法界面；结果中的 `segment_match_note` 会提示窗口段匹配问题。
 
-- **res-id**：view 侧 `app:id/X` 归一化成 `<段包名>:id/X` 后字符串相等（同为 `None` 也算相等）
-- **class**：view 类名属框架类（`android.widget.*` 等）时要求与 a11y 类名**完全相等**；自定义类不要求（它会被 a11y 替换成框架类名，计入 `class_substituted`）
+## 代码结构与数据流
 
-容错是「宁缺毋滥」：配对不上就配对不上，不做启发式匹配、不按统计择优。
+根目录只有 `main.py` 一个 Python 入口。设备与文件 I/O 位于基础设施层；应用层编排采集、按键和截图；领域层完成解析、匹配、裁剪与摘要；接口层提供 CLI 和 MCP。
 
-### 5.3 几何校验四档
+```text
+main.py                     唯一命令入口
+tvuitree/
+  __init__.py               collect_full_json、collect_observation 公开 API
+  interfaces/               CLI、MCP、终端输出和设备参数
+  application/              采集、观察、按键、截图工作流
+  domain/
+    tree/                   树模型、解析、R0–R3、输出和剪枝
+    observation.py          焦点判断与页面摘要
+    screenshot.py           坐标选择与对照
+  infrastructure/           ADB、uiautomator2、快照读取和 PNG 画框
+tests/
+  selftest_tree.py          离线回归断言
+```
 
-对每个配对成功的节点，用**未裁剪的累加布局矩形**跟 a11y 屏幕读数比一次：
+采集数据流为：ADB 读取设备状态 → 基础设施层读取 a11y 与 dumpsys → 应用层组织快照 → 领域层解析并按 R0–R3 配对 → 生成 full JSON。slim 从同一份 full JSON 剪枝；观察摘要从 full JSON 提取焦点、上下文、页面节点和证据。CLI 与 MCP 调用同一应用服务。
 
-| 档位 | 含义 |
+按键和截图核对仍是独立工作流；需要验证真实按键焦点顺序时，先观察、用 `main.py input` 发按键，再重新观察。树的布局顺序不等于遥控器的焦点跳转顺序。`_temp/` 是调查产物，不作为源代码。
+
+### 截图画框约定
+
+`main.py shot` 用于核对读数与画面。画框约定是：框的几何来自树中的坐标，**不加偏移**，按读数**逐像素**绘制，也**不补偿**看起来的错位。`--width` 只改变线宽，不能用来修正坐标。a11y 读数与 dumpsys 派生坐标用不同样式区分；两者不一致时，差异本身就是排查信息。
+
+## 旧命令迁移
+
+| 旧命令 | 新命令 |
 |---|---|
-| `exact` | 两者完全相等 → 该坐标被两个数据源独立证实 |
-| `clip` | 只按祖先裁剪、或再按屏幕裁剪后相等 → 有屏外内容被裁 |
-| `drift` | 都不等（实测为焦点项的 1.05 倍缩放动效） |
-| `na` | 缺读数或缺布局矩形，无法比对 |
+| `python tv_tree.py --mode observe ...` | `python main.py observe ...` |
+| `python tv_tree.py --mode full ...` | `python main.py tree --mode full ...` |
+| `python tv_tree.py --mode slim ...` | `python main.py tree --mode slim ...` |
+| `python tv_input.py ...` | `python main.py input ...` |
+| `python tv_shot.py ...` | `python main.py shot ...` |
+| `python tv_mcp.py` | `python main.py mcp` |
+| `python selftest_tree.py` | `python tests/selftest_tree.py` |
 
-四档之和恒等于配对总数，不会有节点没被归过档。
+Python 调用方使用 `from tvuitree import collect_observation, collect_full_json`。完整树 JSON 中的 `generator` 仍为历史值 `tv_tree.py`，以维持已有数据消费者的比较结果。`collect_full_json(adb=..., serial=...)` 实时采集；`collect_observation(full_json=...)` 离线生成摘要，也可传入 `adb` 与 `serial` 实时观察。返回结构保持原样。旧根目录模块导入路径结束支持。
 
----
+## 验证
 
-## 6. 诚实边界
+从仓库根目录运行：
 
-工具**不提供**这些，也不假装提供：
-
-| 不提供 | 说明 |
-|---|---|
-| 系统焦点顺序 | 树里的子节点顺序是布局顺序，不等于按遥控器时的前进/后退顺序。要真实顺序，得用 `tv_input.py` 按一下、再取一次树来比对 |
-| 屏外 / 滚动容器之外的内容 | a11y 只给可见部分。想看清就先用 `tv_input.py` 滚动，再重跑 |
-| dumpsys 侧的滚动偏移 | dump 不含 `scrollX`/`scrollY`，所以累加出来的绝对坐标**有前提**：祖先链上没有滚动偏移。这个前提无法从数据里验证，只能由逐节点的 `geom_check` 间接反映 |
-| 对话框 / 输入法窗口的树 | `dumpsys activity top` 不输出这类窗口；a11y 能拿到，但配对会缺席，工具会明说 |
-| 操作设备的能力 | 本工具只读。按键是 `tv_input.py` 的事 |
-
-拿不到就报错（退出码 3）或告警，不静默回退、不猜。解析期发现「有字段却没读出来」「缩进不是 2 的倍数」都会打成告警，不静默丢数据。
-
-**截图不是数据源**：`tv_tree.py` 全程 0 次 `screencap`，只有 `tv_shot.py` 才会调它。
-
----
-
-## 7. 自检与验收
-
-```bash
-python selftest_tree.py          # 离线，不连设备；通过 → 0，有失败 → 1
+```powershell
+$pythonFiles = @('main.py') + (Get-ChildItem tvuitree, tests -Filter '*.py' -Recurse | ForEach-Object { $_.FullName })
+python -m py_compile $pythonFiles
+python -m pyflakes $pythonFiles
+python tests/selftest_tree.py
+python main.py --help
+python main.py tree --prune-list
 ```
 
-它用按**真机格式**手写的夹具（不是简化版）锁住：
+`tests/selftest_tree.py` 覆盖解析、R0–R3 配对、剪枝、CLI、观察摘要和截图几何；不需要连接 TV。已有 `full.json` 时，可运行 `python main.py observe --from-json full.json --out observe.json` 检查离线观察。MCP 接入时，在客户端确认能列出 `observe_tv` 和 `get_full_tree`。
 
-- **dumpsys 解析**：缩进（每层 2 空格、起点 6）、flags 宽度（flags1 恒 9 位 / flags2 恒 8 位）、`app:id/x` 写法、解析告警
-- **R0–R3**：每条规则的命中数、几何四档、类名替换计数、**view 节点守恒**（配上 + 补入 + 未定位 == view 节点总数）、多解/零解被拒
-- **剪枝**：8 个开关各剪掉什么、`--keep` 的每一档、`--keep all` 时精简树与全量树**逐字节一致**、剪枝幂等、全量 JSON 不被剪枝污染
-- **命令行**：离线重剪各分支、错误退出码、dumpsys 漂移判定（单调时钟字段必须被排除，否则恒定误报）
-- **辅助脚本**：键码归一化、画框取坐标、祖先链溢出告警
-- **画框几何（像素级）**：框上四边必须是画的颜色、再往外一格必须干净（钉死「框 = 读数」）；加宽对称；零面积 / 真越界 / 压屏幕外沿三类分开报。另有静态锁挡住三种「靠经验修偏差」的写法复发（见 §2.1）
-- **职责边界与文档同步**：主脚本不含 `screencap`/`input keyevent`；README 必须写到每个开关名、每个脚本名，以及画框约定里的关键措辞
-
-改代码后先跑它。它是唯一能在不接设备的情况下发现「行为悄悄变了」的手段。
-
----
-
-## 8. 排查
-
-| 现象 | 先看 |
-|---|---|
-| 提示 a11y 拿不到 / uiautomator2 未安装 | 装依赖；确认 `adb connect` 成功、`adb devices` 里是 `device` 而不是 `offline` |
-| `source_consistency.drift: true` | 画面在动（动画、视频、时间在刷新）。配对结果可信度下降，建议画面静止时重跑 |
-| `segment_match_note` 有内容 | 前台窗口的树不在 dump 里，用的是回退段，不保证对应当前画面 |
-| `align_stats.view_unpaired` 有值 | 这些 dumpsys 节点位次无法唯一确定，它们会在 `dumpsys_only` 里单独列出 |
-| `unexplained_visible_not_in_a11y` 有值 | a11y 没收录一个「可见且有面积」的节点，不是正常剪枝，值得单独查 |
-| 焦点框画的位置不对 | 加 `--source both`，对照红（a11y 读数）与蓝虚线（派生）。不一致时看派生框的溢出告警 |
-| 焦点框看起来比焦点「大一点/偏一点」 | **这是结果，不是缺陷**：框就是读数，差多少是读数本身差多少。先看焦点坐标对照的「差值」与「几何比例」，再决定信哪个源 —— **不要**去调框（§2.1） |
-| 提示两轴换算系数不相等 | 截图宽高比与 `wm size` 对不上，换算已不是相似变换，框的位置无意义；先把两者对齐 |
-| 提示框被裁到边界 | 那条读数的矩形本身就有一部分在屏幕外（如焦点缩放把上边顶出屏幕上沿），提示里给了原读数 |
-| 想人工复核原始输入 | `--save-raw DIR`，会落盘 `u2_hierarchy.xml` + 两次 dumpsys 原文 |
-
----
-
-## 9. 文件
-
-| 文件 | 说明 |
-|---|---|
-| `tv_tree.py` | 核心：取控件树 → JSON（全量 / 精简） |
-| `tv_adb.py` | 设备接入层：adb 调用、掉线自动重连、公共命令行参数、component 归一化 |
-| `tv_input.py` | 发遥控器按键 |
-| `tv_shot.py` | 截图 + 按树 JSON 画框 |
-| `selftest_tree.py` | 离线自检 |
-| `README.md` | 本文件 |
-
-运行期产物（`--out`、`--save-raw` 指定的路径）不在此列，放哪由使用者决定。
-
----
-
-## 10. 给开发者
-
-改代码前先明确自己要动哪一层：
-
-```
-tv_adb.py     设备接入        （只管「怎么跟 adb 说话」）
-  ↓
-tv_tree.py    解析 → 配对 → 序列化 → 剪枝
-  ├─ 解析     parse_dumpsys_top / parse_u2_xml
-  ├─ 坐标     absolute_bounds（派生）/ clip_to_chain / pred_visible_rect
-  ├─ 谓词     norm_res_id / class_ok / resid_ok
-  ├─ 配对     align（R0–R3）/ merge_children（位次是否唯一，唯一判据只在这一处）
-  ├─ 成树     build_unified（a11y 骨架 + 位次已定的 dumpsys 节点）
-  ├─ 序列化   build_full_json
-  └─ 剪枝     apply_prune / _owner_switch（认领唯一，见 §4.1）
-```
-
-三条容易踩的线：
-
-1. **判据只能有一处**。比如「某个 dumpsys 独有节点的位次是否已确定」，判断只写在 `merge_children()` 里，统计与输出都调它。写两处就会漂移 —— 同一个节点既出现在主树里、又被列进「位置无法确定」。
-2. **派生的前提要标出来**。`absolute_bounds()` 沿祖先链累加，隐含「祖先链上没有滚动偏移」；这个前提不能假设成立，只能由 `geom_check` 逐节点给结论。
-3. **诚实优先于完整**。宁可输出「这里判不了」，也不要输出一个看着完整、实际是猜出来的结果。
-
-改完之后按这个顺序验：
-
-```bash
-python -m py_compile tv_tree.py tv_adb.py tv_input.py tv_shot.py selftest_tree.py
-python -m pyflakes  tv_tree.py tv_adb.py tv_input.py tv_shot.py selftest_tree.py   # 须无输出
-python selftest_tree.py                                                            # 须退出码 0
-```
-
-接上设备还可以跑一遍真机流程：
-
-```bash
-python tv_tree.py --out full.json
-python tv_tree.py --mode slim --out slim.json
-python tv_input.py DPAD_DOWN
-python tv_shot.py --json full.json --source both --out shot.png
-```
+真实设备验收时，先在 TV 上打开一个有焦点的页面，再采集 `observe`；需要验证按键后的焦点变化时，发送一个遥控器按键并重新采集。`adb devices -l` 只说明 ADB 连接状态：若报 `device offline`，先恢复 ADB 连接；若报“dumpsys 里没有可用的 ACTIVITY 段”，当前画面没有可用的补充树，可明确使用 `--no-dumpsys` 只读 a11y。若 uiautomator2 同时报告 `dump empty`，应切换到有无障碍节点的页面后重试。
