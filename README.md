@@ -181,7 +181,7 @@ python main.py observe --from-json full.json --out observe.json
 
 MCP 工具没有 `--from-json`、`--out` 或按键参数；每次调用都会重新读取设备。`observe_tv` 成功时返回 `schema_version=tv-observation/v1`，失败时仍返回结构化 JSON，并将 `focus.status` 设为 `error`。`get_full_tree` 失败时返回包含 `error`、`error_type` 和 `mode=full` 的 JSON。
 
-`get_current_focus` 返回 `status` 和精简的焦点 `node`（控件类、标签、资源 ID、包名、坐标及其来源）；不会返回重复的 `candidates`，也不会附带祖先、同级节点或子节点。若焦点有多个候选，则返回精简候选列表；若焦点缺失或采集失败，则返回状态和原因。完整上下文仍可通过 `observe_tv.focus` 获取。`get_focus_screenshot` 返回文本元数据和可直接显示的 MCP `image/png` 内容，不要求客户端打开本地路径。红框只使用 a11y 的 `bounds_screen` 读数，线宽为 3 像素；不会用 dumpsys 派生坐标猜位置。元数据包含焦点状态、取树和截图时刻、画出/跳过的框数以及提示。若没有焦点或坐标，仍返回截图，但明确说明未加框；若焦点框无法绘制或采集失败，则返回错误。两个时间戳可以帮助判断画面变化造成的错位。
+`get_current_focus` 返回 `status` 和精简的焦点 `node`（标签、可选摘要、控件类、资源 ID、包名、坐标及其来源）。标签和摘要会从焦点容器下可见的文本节点中提取，因此焦点落在无文字的布局容器上时，仍能返回容器所代表的项目名称；例如设置列表会返回 `label: Network & Internet` 和对应的网络摘要。工具不会返回重复的 `candidates`，也不会附带祖先、同级节点或子节点。若焦点有多个候选，则返回精简候选列表；若焦点缺失或采集失败，则返回状态和原因。完整上下文仍可通过 `observe_tv.focus` 获取。`get_focus_screenshot` 返回文本元数据和可直接显示的 MCP `image/png` 内容，不要求客户端打开本地路径。红框只使用 a11y 的 `bounds_screen` 读数，线宽为 3 像素；不会用 dumpsys 派生坐标猜位置。元数据包含焦点状态、取树和截图时刻、画出/跳过的框数以及提示。若没有焦点或坐标，仍返回截图，但明确说明未加框；若焦点框无法绘制或采集失败，则返回错误。两个时间戳可以帮助判断画面变化造成的错位。
 
 ## 用 MCP Inspector 网页调试
 
