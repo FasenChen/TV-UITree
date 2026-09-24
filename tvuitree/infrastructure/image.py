@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import tempfile
 
 from tvuitree.domain.screenshot import _px, _scale_factors
 
@@ -77,7 +79,7 @@ def _cross(dr, rect: tuple, color):
 
 
 def draw_boxes(png_bytes: bytes, boxes: list, out_path: str,
-               screen: dict, width: int = 1) -> tuple:
+               screen: dict, width: int = 1, show_details: bool = True) -> tuple:
     """在截图上画框。返回 (画出数, 未画出数, 提示列表)。
 
     几何约定见模块文档：**框 = 读数，逐像素对齐**；只用分辨率换算，无偏移、无容差。
@@ -148,11 +150,12 @@ def draw_boxes(png_bytes: bytes, boxes: list, out_path: str,
         rect = (_px(cl), _px(ct), _px(cr), _px(cb))
         color = COLOR_READING if kind == "reading" else COLOR_DERIVED
         _stroke_rect(dr, rect, color, width, dashed=(kind != "reading"))
-        _cross(dr, rect, color)
-        try:
-            dr.text((rect[0] + 2, max(0, rect[1] - 13)), label, fill=color)
-        except Exception:
-            pass
+        if show_details:
+            _cross(dr, rect, color)
+            try:
+                dr.text((rect[0] + 2, max(0, rect[1] - 13)), label, fill=color)
+            except Exception:
+                pass
         drawn += 1
     if edge_only:
         # 汇总行放最前：per-box 提示可能很多、会被截断，这条不能被挤掉
@@ -163,6 +166,18 @@ def draw_boxes(png_bytes: bytes, boxes: list, out_path: str,
                         f"这是像素栅格的半开区间约定，不是读数越界，故只给总数")
     img.save(out_path)
     return drawn, skipped, notes
+
+
+def draw_boxes_png(png_bytes: bytes, boxes: list, screen: dict,
+                   width: int = 1, show_details: bool = True) -> tuple:
+    """Draw using the shared renderer and return PNG bytes without a saved artifact."""
+    with tempfile.TemporaryDirectory(prefix="tv-uitree-focus-") as directory:
+        path = os.path.join(directory, "focus.png")
+        drawn, skipped, notes = draw_boxes(
+            png_bytes, boxes, path, screen, width, show_details=show_details,
+        )
+        with open(path, "rb") as image_file:
+            return image_file.read(), drawn, skipped, notes
 
 
 def capture(adb) -> bytes:

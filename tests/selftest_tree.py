@@ -40,6 +40,7 @@ selftest_tree.py — 离线自检：不连设备、不联网、不需要 pytest
 from __future__ import annotations
 
 import contextlib
+import asyncio
 import io
 import json
 import os
@@ -1101,6 +1102,7 @@ _original_snapshot = snapshot_adapter.snapshot
 _original_observe_connect = observe_interface.connect_for_cli
 _original_tree_connect = tree_interface.connect_for_cli
 _original_mcp_connect = mcp_interface._connect
+_original_mcp_capture = mcp_interface.capture
 _fake_device = SimpleNamespace(serial="fixture")
 
 
@@ -1136,6 +1138,31 @@ try:
     t.eq(_without_capture_time(cli_observation), _without_capture_time(mcp_observation),
          "CLI 与 MCP 对同一快照返回相同观察 JSON")
 
+    mcp_focus = mcp_interface.get_current_focus(no_dumpsys=False)
+    t.eq(mcp_focus, cli_observation["focus"],
+         "独立 MCP 焦点工具只返回同一份焦点信息")
+    t.eq(mcp_focus["status"], "found", "独立焦点工具报告唯一焦点")
+    t.eq(mcp_interface.get_current_focus()["node"]["bounds"],
+         cli_observation["focus"]["node"]["bounds"],
+         "默认只读 a11y 仍能取得同一焦点坐标")
+
+    if has_pil:
+        mcp_interface.capture = lambda device: png
+        shot_content = asyncio.run(mcp_interface.mcp.call_tool("get_focus_screenshot", {}))
+        t.eq([item.type for item in shot_content], ["text", "image"],
+             "MCP 截图工具返回元数据和原生 image 内容")
+        shot_meta = json.loads(shot_content[0].text)
+        t.eq(shot_meta["focus"]["status"], "found", "截图元数据包含本次焦点状态")
+        t.eq((shot_meta["drawn"], shot_meta["skipped"]), (1, 0),
+             "截图只画一个 a11y 焦点框")
+        t.eq(shot_content[1].mimeType, "image/png", "MCP 图像格式是 PNG")
+        import base64
+        marked = Image.open(io.BytesIO(base64.b64decode(shot_content[1].data))).convert("RGB")
+        t.eq(marked.getpixel((468, 100)), image.COLOR_READING,
+             "MCP 截图的焦点读数左边界是红框")
+        t.eq(marked.getpixel((500, 100)), (40, 40, 40),
+             "MCP 截图只画边框，不画中心十字")
+
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         cli_tree_rc = cli.main(["tree", "--out", os.path.join(TD, "shared_tree.json")])
     with open(os.path.join(TD, "shared_tree.json"), encoding="utf-8") as source:
@@ -1154,11 +1181,16 @@ try:
     t.eq(failure_rc, 3, "采集失败时 CLI 保留退出码 3")
     t.eq(mcp_interface.observe_tv()["focus"]["status"], "error",
          "采集失败时 MCP 返回结构化 error 状态")
+    t.eq(mcp_interface.get_current_focus()["status"], "error",
+         "独立焦点工具在采集失败时返回 error 状态")
+    t.ok("error" in mcp_interface.get_focus_screenshot()[0],
+         "截图工具采集失败时返回可读错误")
 finally:
     snapshot_adapter.snapshot = _original_snapshot
     observe_interface.connect_for_cli = _original_observe_connect
     tree_interface.connect_for_cli = _original_tree_connect
     mcp_interface._connect = _original_mcp_connect
+    mcp_interface.capture = _original_mcp_capture
 
 # ================================================================== 收尾
 
