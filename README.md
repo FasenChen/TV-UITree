@@ -98,22 +98,27 @@ python main.py observe --from-json full.json --out observe.json
 |---|---|---|
 | `observe_tv` | 焦点、页面摘要和判断证据 | `TV_IP_Address`、`port`、`no_dumpsys`、`max_nodes` |
 | `get_full_tree` | 当次采集的完整控件树 | `TV_IP_Address`、`port`、`no_dumpsys` |
-| `get_current_focus` | 精简的焦点状态和焦点节点信息 | `TV_IP_Address`、`port`、`no_dumpsys` |
-| `get_focus_screenshot` | 返回实时 PNG 图像，并用红框标出焦点位置 | `TV_IP_Address`、`port`、`no_dumpsys` |
+| `get_current_focus` | 精简的焦点状态和焦点节点信息 | `TV_IP_Address`、`port` |
+| `get_focus_screenshot` | 返回实时 PNG 图像，并用红框标出焦点位置 | `TV_IP_Address`、`port` |
 
 ### MCP 工具参数
 
-四个工具都从仓库根目录的 `config.json` 读取默认设备参数。调用时传入的值优先于配置文件；可以只覆盖其中一个值。MCP 参数 `TV_IP_Address` 对应 CLI 的 `--TV_IP_Address`。
+四个工具都从仓库根目录的 `config.json` 读取默认设备参数。调用时传入的值优先于配置文件；可以只覆盖其中一个值。MCP 参数 `TV_IP_Address` 对应 CLI 的 `--TV_IP_Address`。以下参数对四个工具都适用：
 
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `TV_IP_Address` | string 或 null | `null` | 电视的 IP 或主机名；省略时读取 `config.json` 的同名字段，不包含端口。 |
 | `port` | integer 或 null | `null` | ADB TCP 端口；省略时读取 `config.json` 的 `port`，有效范围 1–65535。 |
 | `adb` | string 或 null | `null` | 运行 MCP 服务的电脑上的 ADB 可执行文件路径；省略时读取 `config.json` 的 `adb`。显式传入时覆盖配置。 |
-| `no_connect` | boolean | `false` | 为 `true` 时不执行 `adb connect`，但仍会检查目标是否已经出现在 `adb devices` 中。适合已提前连接的设备。 |
-| `no_dumpsys` | boolean | 见下文 | 为 `true` 时只读取 uiautomator2 无障碍树；为 `false` 时同时读取 `dumpsys activity top`，用于补充 View 节点和 R0–R3 配对证据。 |
 
-`observe_tv` 和 `get_full_tree` 的 `no_dumpsys` 默认是 `false`；两个焦点专用工具默认是 `true`，只读取焦点所需的 a11y 树。需要双源诊断时，可显式设为 `false`。
+`observe_tv` 和 `get_full_tree` 还支持以下诊断参数：
+
+| 参数 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `no_connect` | boolean | `false` | 为 `true` 时不执行 `adb connect`，但仍会检查目标是否已经出现在 `adb devices` 中。适合已提前连接的设备。 |
+| `no_dumpsys` | boolean | `false` | 为 `true` 时只读取 uiautomator2 无障碍树；为 `false` 时同时读取 `dumpsys activity top`，用于补充 View 节点和 R0–R3 配对证据。 |
+
+`get_current_focus` 和 `get_focus_screenshot` 按默认配置连接 TV，只读取焦点所需的 a11y 树，不提供这两个诊断参数。需要双源诊断时使用 `observe_tv` 或 `get_full_tree`。
 
 `observe_tv` 另外支持以下参数：
 
@@ -224,7 +229,7 @@ npx -y @modelcontextprotocol/inspector .\.venv\Scripts\python.exe .\main.py mcp
 }
 ```
 
-`get_full_tree` 不接受 `max_nodes`；如果只验证 a11y 读取，可以把 `no_dumpsys` 设为 `true`。`get_current_focus` 和 `get_focus_screenshot` 也不接受 `max_nodes`。Inspector 网页本身只调试 MCP 协议和工具参数；所有工具都是只读采集，不会发送遥控器按键。
+`get_full_tree` 不接受 `max_nodes`；如果只验证 a11y 读取，可以把 `no_dumpsys` 设为 `true`。`get_current_focus` 和 `get_focus_screenshot` 不接受 `max_nodes`、`no_connect` 或 `no_dumpsys`。Inspector 网页本身只调试 MCP 协议和工具参数；所有工具都是只读采集，不会发送遥控器按键。
 
 stdio 服务的标准输出专用于 MCP 协议，诊断信息写入标准错误；不要在 `main.py mcp` 服务中增加普通标准输出日志，否则可能导致 Inspector 连接失败。更完整的协议、CLI 和网页选项见 [MCP Inspector 官方文档](https://github.com/modelcontextprotocol/docs/blob/main/docs/tools/inspector.mdx)。
 

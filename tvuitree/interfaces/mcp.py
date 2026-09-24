@@ -141,20 +141,18 @@ def get_current_focus(
     TV_IP_Address: Optional[str] = None,
     port: Optional[int] = None,
     adb: Optional[str] = None,
-    no_connect: bool = False,
-    no_dumpsys: bool = True,
 ) -> dict:
     """返回精简的当前焦点节点信息，不返回祖先、同级节点或子节点。"""
     try:
         device, target = _connect(
             TV_IP_Address=TV_IP_Address, port=port, adb=adb,
-            no_connect=no_connect,
+            no_connect=False,
         )
         if device is None:
             return _focus_info(error_observation(f"无法连接 TV：{target}")["focus"])
         full = collect_full_json(
             adb=device, serial=device.serial, quiet=True,
-            use_dumpsys=not no_dumpsys,
+            use_dumpsys=False,
         )
         focus = collect_observation(full_json=full)["focus"]
         return _focus_info(focus, full)
@@ -167,20 +165,18 @@ def get_focus_screenshot(
     TV_IP_Address: Optional[str] = None,
     port: Optional[int] = None,
     adb: Optional[str] = None,
-    no_connect: bool = False,
-    no_dumpsys: bool = True,
 ) -> list:
     """返回当前 TV 截图的 PNG 图像，并用红框标出 a11y 焦点读数。"""
     try:
         device, target = _connect(
             TV_IP_Address=TV_IP_Address, port=port, adb=adb,
-            no_connect=no_connect,
+            no_connect=False,
         )
         if device is None:
             return [{"error": f"无法连接 TV：{target}"}]
         full = collect_full_json(
             adb=device, serial=device.serial, quiet=True,
-            use_dumpsys=not no_dumpsys,
+            use_dumpsys=False,
         )
         observation = collect_observation(full_json=full)
         png = capture(device)

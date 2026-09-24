@@ -1138,7 +1138,7 @@ try:
     t.eq(_without_capture_time(cli_observation), _without_capture_time(mcp_observation),
          "CLI 与 MCP 对同一快照返回相同观察 JSON")
 
-    mcp_focus = mcp_interface.get_current_focus(no_dumpsys=False)
+    mcp_focus = mcp_interface.get_current_focus()
     t.eq(mcp_focus["status"], cli_observation["focus"]["status"],
          "独立 MCP 焦点工具返回同一焦点状态")
     t.eq(mcp_focus["node"]["bounds"], cli_observation["focus"]["node"]["bounds"],
@@ -1146,9 +1146,12 @@ try:
     t.eq(set(mcp_focus), {"status", "node"},
          "独立 MCP 焦点工具不返回上下文或重复候选")
     t.eq(mcp_focus["status"], "found", "独立焦点工具报告唯一焦点")
-    t.eq(mcp_interface.get_current_focus()["node"]["bounds"],
-         cli_observation["focus"]["node"]["bounds"],
-         "默认只读 a11y 仍能取得同一焦点坐标")
+    mcp_schemas = {
+        tool.name: tool.inputSchema for tool in asyncio.run(mcp_interface.mcp.list_tools())
+    }
+    for name in ("get_current_focus", "get_focus_screenshot"):
+        t.eq(set(mcp_schemas[name]["properties"]), {"TV_IP_Address", "port", "adb"},
+             f"{name} 只公开设备连接参数")
 
     if has_pil:
         mcp_interface.capture = lambda device: png
