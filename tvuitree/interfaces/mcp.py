@@ -36,6 +36,40 @@ def _connect(*, TV_IP_Address: Optional[str], port: Optional[int],
     return connect_device(options, quiet=True), options.target
 
 
+def _focus_info(focus: dict) -> dict:
+    """Keep the direct-focus tool focused on the node, not its full tree context."""
+    status = focus.get("status", "error")
+    if status == "found":
+        node = focus.get("node")
+        if not isinstance(node, dict):
+            candidates = focus.get("candidates") or []
+            node = candidates[0] if candidates else {}
+        fields = (
+            "class", "labels", "resource_id", "package", "bounds",
+            "bounds_kind", "source",
+        )
+        return {
+            "status": status,
+            "node": {key: node[key] for key in fields if key in node},
+        }
+    if status == "ambiguous":
+        fields = (
+            "class", "labels", "resource_id", "package", "bounds",
+            "bounds_kind", "source",
+        )
+        candidates = [
+            {key: node[key] for key in fields if key in node}
+            for node in focus.get("candidates", []) if isinstance(node, dict)
+        ]
+        return {
+            "status": status,
+            "candidate_count": focus.get("candidate_count", len(candidates)),
+            "candidates": candidates,
+            "reason": focus.get("reason"),
+        }
+    return {"status": status, "reason": focus.get("reason")}
+
+
 @mcp.tool()
 def get_current_focus(
     TV_IP_Address: Optional[str] = None,
@@ -44,20 +78,21 @@ def get_current_focus(
     no_connect: bool = False,
     no_dumpsys: bool = True,
 ) -> dict:
-    """只返回当前 TV 的焦点状态、节点及候选信息；默认只读 a11y。"""
+    """返回精简的当前焦点节点信息，不返回祖先、同级节点或子节点。"""
     try:
         device, target = _connect(
             TV_IP_Address=TV_IP_Address, port=port, adb=adb,
             no_connect=no_connect,
         )
         if device is None:
-            return error_observation(f"无法连接 TV：{target}")["focus"]
-        return collect_observation(
+            return _focus_info(error_observation(f"无法连接 TV：{target}")["focus"])
+        focus = collect_observation(
             adb=device, serial=device.serial, quiet=True,
             use_dumpsys=not no_dumpsys,
         )["focus"]
+        return _focus_info(focus)
     except Exception as exc:
-        return error_observation(exc)["focus"]
+        return _focus_info(error_observation(exc)["focus"])
 
 
 @mcp.tool(structured_output=False)
@@ -87,7 +122,7 @@ def get_focus_screenshot(
         if result["boxes"] and not result["drawn"]:
             return [{"error": "焦点框未能画到截图上", "notes": result["notes"]}]
         metadata = {
-            "focus": observation["focus"],
+            "focus": _focus_info(observation["focus"]),
             "captured_at": full.get("captured_at"),
             "screenshot_at": screenshot_at,
             "drawn": result["drawn"],

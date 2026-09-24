@@ -1139,8 +1139,12 @@ try:
          "CLI 与 MCP 对同一快照返回相同观察 JSON")
 
     mcp_focus = mcp_interface.get_current_focus(no_dumpsys=False)
-    t.eq(mcp_focus, cli_observation["focus"],
-         "独立 MCP 焦点工具只返回同一份焦点信息")
+    t.eq(mcp_focus["status"], cli_observation["focus"]["status"],
+         "独立 MCP 焦点工具返回同一焦点状态")
+    t.eq(mcp_focus["node"]["bounds"], cli_observation["focus"]["node"]["bounds"],
+         "独立 MCP 焦点工具保留焦点节点坐标")
+    t.eq(set(mcp_focus), {"status", "node"},
+         "独立 MCP 焦点工具不返回上下文或重复候选")
     t.eq(mcp_focus["status"], "found", "独立焦点工具报告唯一焦点")
     t.eq(mcp_interface.get_current_focus()["node"]["bounds"],
          cli_observation["focus"]["node"]["bounds"],

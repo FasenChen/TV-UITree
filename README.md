@@ -98,7 +98,7 @@ python main.py observe --from-json full.json --out observe.json
 |---|---|---|
 | `observe_tv` | 焦点、页面摘要和判断证据 | `TV_IP_Address`、`port`、`no_dumpsys`、`max_nodes` |
 | `get_full_tree` | 当次采集的完整控件树 | `TV_IP_Address`、`port`、`no_dumpsys` |
-| `get_current_focus` | 只返回当前焦点状态、节点、候选和上下文 | `TV_IP_Address`、`port`、`no_dumpsys` |
+| `get_current_focus` | 精简的焦点状态和焦点节点信息 | `TV_IP_Address`、`port`、`no_dumpsys` |
 | `get_focus_screenshot` | 返回实时 PNG 图像，并用红框标出焦点位置 | `TV_IP_Address`、`port`、`no_dumpsys` |
 
 ### MCP 工具参数
@@ -181,7 +181,7 @@ python main.py observe --from-json full.json --out observe.json
 
 MCP 工具没有 `--from-json`、`--out` 或按键参数；每次调用都会重新读取设备。`observe_tv` 成功时返回 `schema_version=tv-observation/v1`，失败时仍返回结构化 JSON，并将 `focus.status` 设为 `error`。`get_full_tree` 失败时返回包含 `error`、`error_type` 和 `mode=full` 的 JSON。
 
-`get_current_focus` 直接返回与 `observe_tv.focus` 相同的对象，不附带页面摘要。`get_focus_screenshot` 返回文本元数据和可直接显示的 MCP `image/png` 内容，不要求客户端打开本地路径。红框只使用 a11y 的 `bounds_screen` 读数，线宽为 3 像素；不会用 dumpsys 派生坐标猜位置。元数据包含焦点状态、取树和截图时刻、画出/跳过的框数以及提示。若没有焦点或坐标，仍返回截图，但明确说明未加框；若焦点框无法绘制或采集失败，则返回错误。两个时间戳可以帮助判断画面变化造成的错位。
+`get_current_focus` 返回 `status` 和精简的焦点 `node`（控件类、标签、资源 ID、包名、坐标及其来源）；不会返回重复的 `candidates`，也不会附带祖先、同级节点或子节点。若焦点有多个候选，则返回精简候选列表；若焦点缺失或采集失败，则返回状态和原因。完整上下文仍可通过 `observe_tv.focus` 获取。`get_focus_screenshot` 返回文本元数据和可直接显示的 MCP `image/png` 内容，不要求客户端打开本地路径。红框只使用 a11y 的 `bounds_screen` 读数，线宽为 3 像素；不会用 dumpsys 派生坐标猜位置。元数据包含焦点状态、取树和截图时刻、画出/跳过的框数以及提示。若没有焦点或坐标，仍返回截图，但明确说明未加框；若焦点框无法绘制或采集失败，则返回错误。两个时间戳可以帮助判断画面变化造成的错位。
 
 ## 用 MCP Inspector 网页调试
 
