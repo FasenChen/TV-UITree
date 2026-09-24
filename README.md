@@ -12,12 +12,20 @@
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-$tvAddress = '192.168.1.147:5555'  # 改为目标电视的地址
-adb connect $tvAddress
-python main.py observe --address $tvAddress --out observe.json
+python main.py observe --out observe.json
 ```
 
-可用 `--max-nodes` 限制页面摘要节点数（默认 80）。打开 `observe.json`，先看 `focus.status` 和 `focus.node`，再看 `focus.context`、`page.nodes` 与 `warnings`。未指定 `--out` 时，JSON 写到标准输出。默认目标是 `192.168.1.147:5555`；接入其他设备时显式传入 `--address` 或 `--serial`。
+可用 `--max-nodes` 限制页面摘要节点数（默认 80）。打开 `observe.json`，先看 `focus.status` 和 `focus.node`，再看 `focus.context`、`page.nodes` 与 `warnings`。未指定 `--out` 时，JSON 写到标准输出。默认目标从仓库根目录的 `config.json` 读取。按需修改 `TV_IP_Address` 和 `port`：
+
+```json
+{
+  "TV_IP_Address": "192.168.1.147",
+  "port": 5555,
+  "adb": "D:\\\\platform-tools\\\\adb.exe"
+}
+```
+
+连接时直接使用配置文件；临时切换电视可传入 `--TV_IP_Address 192.168.1.148 --port 5555`。显式参数优先于配置文件；只传其中一个时，另一个仍从配置文件读取。`TV_IP_Address` 只填 IP 或主机名，不包含端口。`adb` 设置本机 ADB 可执行文件路径；命令行或 MCP 显式传入 `adb` 时优先。配置文件缺失或值无效时会明确报错。
 
 如果手头已有本工具产生的全量 JSON，可以不连接 TV：
 
@@ -88,22 +96,21 @@ python main.py observe --from-json full.json --out observe.json
 
 | 工具 | 返回内容 | 常用参数 |
 |---|---|---|
-| `observe_tv` | 焦点、页面摘要和判断证据 | `address` 或 `serial`、`no_dumpsys`、`max_nodes` |
-| `get_full_tree` | 当次采集的完整控件树 | `address` 或 `serial`、`no_dumpsys` |
+| `observe_tv` | 焦点、页面摘要和判断证据 | `TV_IP_Address`、`port`、`no_dumpsys`、`max_nodes` |
+| `get_full_tree` | 当次采集的完整控件树 | `TV_IP_Address`、`port`、`no_dumpsys` |
 
 ### MCP 工具参数
 
-两个工具都使用同一组设备连接参数。每次调用只选择一种目标方式即可，解析优先级为：`serial` > `address` > `host` + `port`。
+两个工具都从仓库根目录的 `config.json` 读取默认设备参数。调用时传入的值优先于配置文件；可以只覆盖其中一个值。MCP 参数 `TV_IP_Address` 对应 CLI 的 `--TV_IP_Address`。
 
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
-| `host` | string | `192.168.1.147` | 电视的 IP 或主机名。仅在没有 `serial`、`address` 时使用。 |
-| `port` | integer | `5555` | ADB TCP 端口。与 `host` 一起组成 `host:port`，仅在没有 `serial`、`address` 时使用。 |
-| `serial` | string 或 null | `null` | 直接指定 `adb devices` 中的 serial，可填 USB serial、模拟器 serial 或 `192.168.1.147:5555`。指定后优先于其他目标参数。 |
-| `address` | string 或 null | `null` | 直接指定完整地址，例如 `192.168.1.147:5555`。没有 `serial` 时优先于 `host` + `port`。 |
-| `adb` | string 或 null | `null` | 运行 MCP 服务的电脑上的 adb 可执行文件路径，例如 `C:\Android\Sdk\platform-tools\adb.exe`。不填时按 PATH 和常见 SDK 目录查找。 |
+| `TV_IP_Address` | string 或 null | `null` | 电视的 IP 或主机名；省略时读取 `config.json` 的同名字段，不包含端口。 |
+| `port` | integer 或 null | `null` | ADB TCP 端口；省略时读取 `config.json` 的 `port`，有效范围 1–65535。 |
+| `adb` | string 或 null | `null` | 运行 MCP 服务的电脑上的 ADB 可执行文件路径；省略时读取 `config.json` 的 `adb`。显式传入时覆盖配置。 |
 | `no_connect` | boolean | `false` | 为 `true` 时不执行 `adb connect`，但仍会检查目标是否已经出现在 `adb devices` 中。适合已提前连接的设备。 |
 | `no_dumpsys` | boolean | `false` | 为 `true` 时只读取 uiautomator2 无障碍树；为 `false` 时同时读取 `dumpsys activity top`，用于补充 View 节点和 R0–R3 配对证据。 |
+
 
 `observe_tv` 另外支持以下参数：
 
@@ -113,19 +120,17 @@ python main.py observe --from-json full.json --out observe.json
 
 #### `observe_tv` 调用示例
 
-只使用当前 TV 的默认连接地址：
+使用 `config.json` 中的默认电视：
 
 ```json
-{
-  "address": "192.168.1.147:5555"
-}
+{}
 ```
 
 同时读取双源数据，并限制页面摘要为 20 个节点：
 
 ```json
 {
-  "address": "192.168.1.147:5555",
+  "TV_IP_Address": "192.168.1.148",
   "no_connect": false,
   "no_dumpsys": false,
   "max_nodes": 20
@@ -136,7 +141,6 @@ python main.py observe --from-json full.json --out observe.json
 
 ```json
 {
-  "serial": "192.168.1.147:5555",
   "no_connect": true,
   "max_nodes": 20
 }
@@ -146,7 +150,7 @@ python main.py observe --from-json full.json --out observe.json
 
 ```json
 {
-  "address": "192.168.1.147:5555",
+  "TV_IP_Address": "192.168.1.148",
   "no_dumpsys": true,
   "max_nodes": 20
 }
@@ -158,7 +162,7 @@ python main.py observe --from-json full.json --out observe.json
 
 ```json
 {
-  "address": "192.168.1.147:5555",
+  "TV_IP_Address": "192.168.1.148",
   "no_dumpsys": false
 }
 ```
@@ -167,12 +171,13 @@ python main.py observe --from-json full.json --out observe.json
 
 ```json
 {
-  "address": "192.168.1.147:5555",
+  "TV_IP_Address": "192.168.1.148",
   "no_dumpsys": true
 }
 ```
 
-MCP 工具没有 `--from-json`、`--out` 或按键参数；每次调用都会重新读取设备。`observe_tv` 成功时返回 `schema_version=tv-observation/v1`，失败时仍返回结构化 JSON，并将 `focus.status` 设为 `error`。`get_full_tree` 失败时返回包含 `error`、`error_type` 和 `mode=full` 的 JSON。两个工具都不会发送遥控器按键或抓取截图。
+MCP 工具没有 `--from-json`、`--out` 或按键参数；每次调用都会重新读取设备。`observe_tv` 成功时返回 `schema_version=tv-observation/v1`，失败时仍返回结构化 JSON，并将 `focus.status` 设为 `error`。`get_full_tree` 失败时返回包含 `error`、`error_type` 和 `mode=full` 的 JSON。
+
 
 ## 用 MCP Inspector 网页调试
 
@@ -203,28 +208,27 @@ npx -y @modelcontextprotocol/inspector .\.venv\Scripts\python.exe .\main.py mcp
 | Command | 仓库内 `.venv\Scripts\python.exe` 的绝对路径 |
 | Arguments | 仓库根目录 `main.py` 的绝对路径、`mcp` |
 | Working directory | 仓库根目录 |
-| Environment | 通常留空；设备地址在工具参数中传入 |
+| Environment | 通常留空；默认设备地址从仓库根目录的 `config.json` 读取 |
 
-连接成功后，在工具列表中选择 `observe_tv` 或 `get_full_tree`。当前 TV 可以这样填写参数：
+连接成功后，在工具列表中选择 `observe_tv` 或 `get_full_tree`。临时覆盖目标电视时可以这样填写参数：
 
 ```json
 {
-  "address": "192.168.1.147:5555",
+  "TV_IP_Address": "192.168.1.148",
   "no_dumpsys": false,
   "max_nodes": 20
 }
 ```
 
-`get_full_tree` 不接受 `max_nodes`；如果只验证 a11y 读取，可以把 `no_dumpsys` 设为 `true`。Inspector 网页本身只调试 MCP 协议和工具参数，两个工具仍然是只读采集，不会发送遥控器按键。
+`get_full_tree` 不接受 `max_nodes`；如果只验证 a11y 读取，可以把 `no_dumpsys` 设为 `true`。Inspector 网页本身只调试 MCP 协议和工具参数；所有工具都是只读采集，不会发送遥控器按键。
 
 stdio 服务的标准输出专用于 MCP 协议，诊断信息写入标准错误；不要在 `main.py mcp` 服务中增加普通标准输出日志，否则可能导致 Inspector 连接失败。更完整的协议、CLI 和网页选项见 [MCP Inspector 官方文档](https://github.com/modelcontextprotocol/docs/blob/main/docs/tools/inspector.mdx)。
 
 ## 其他命令
 
 ```powershell
-$tvAddress = '192.168.1.147:5555'  # 改为目标电视的地址
-python main.py tree --address $tvAddress --mode full --out full.json
-python main.py tree --address $tvAddress --mode slim --out slim.json
+python main.py tree --mode full --out full.json
+python main.py tree --TV_IP_Address 192.168.1.148 --port 5555 --mode slim --out slim.json
 python main.py tree --from-json full.json --mode slim --out slim.json
 python main.py tree --mode slim --keep empty,offscreen --out kept.json
 python main.py tree --prune-list
@@ -288,7 +292,7 @@ tests/
 
 采集数据流为：ADB 读取设备状态 → 基础设施层读取 a11y 与 dumpsys → 应用层组织快照 → 领域层解析并按 R0–R3 配对 → 生成 full JSON。slim 从同一份 full JSON 剪枝；观察摘要从 full JSON 提取焦点、上下文、页面节点和证据。CLI 与 MCP 调用同一应用服务。
 
-按键和截图核对仍是独立工作流；需要验证真实按键焦点顺序时，先观察、用 `main.py input` 发按键，再重新观察。树的布局顺序不等于遥控器的焦点跳转顺序。`_temp/` 是调查产物，不作为源代码。
+按键和截图核对仍是独立工作流。需要验证真实按键焦点顺序时，先观察、用 `main.py input` 发按键，再重新观察。树的布局顺序不等于遥控器的焦点跳转顺序。`_temp/` 是调查产物，不作为源代码。
 
 ### 截图画框约定
 

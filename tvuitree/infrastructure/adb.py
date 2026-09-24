@@ -13,9 +13,6 @@ from typing import Optional
 
 from tvuitree.domain.component import component_from_window, component_from_activity_record
 
-DEFAULT_HOST = "192.168.1.147"
-DEFAULT_PORT = 5555
-
 # Windows 上常见的 adb 位置（按顺序探测）
 ADB_CANDIDATES = [
     r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe",

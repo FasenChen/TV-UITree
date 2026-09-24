@@ -311,9 +311,11 @@ t.group("0. 统一入口的设备参数与连接选项")
 for name in ("observe", "tree", "input", "shot"):
     command_parser = cli.build_parser()._subparsers._group_actions[0].choices[name]
     help_text = command_parser.format_help()
-    for opt in ("--host", "--port", "--serial", "--address", "--adb", "--no-connect",
+    for opt in ("--TV_IP_Address", "--port", "--adb", "--no-connect",
                 "--no-color", "--quiet"):
         t.ok(opt in help_text, f"{name} 要有公共设备参数 {opt}")
+    for removed in ("--host", "--serial", "--address"):
+        t.ok(removed not in help_text, f"{name} 不再提供 {removed}")
 t.eq(adb.resolve_adb("X:/adb.exe"), "X:/adb.exe", "显式指定的 adb 路径优先（不查文件系统）")
 t.eq(component.normalize_component("com.demo/.MainActivity"),
      ("com.demo", "com.demo.MainActivity"), "`.Cls` 写法要补全包名")
@@ -328,9 +330,23 @@ t.eq(component.component_from_activity_record(
 t.eq(component.component_from_window(
     "  mFocusedWindow=Window{abc u0 com.demo/.MainActivity}"),
     "com.demo/.MainActivity", "从 window dump 取 component")
+with open(os.path.join(os.path.dirname(__file__), "..", "config.json"), encoding="utf-8") as _f:
+    _device_config = json.load(_f)
 t.eq(connection.options_from_args(
-    cli.build_parser().parse_args(["input", "--host", "1.2.3.4", "--port", "5555"])
-).target, "1.2.3.4:5555", "serial 默认由 host:port 拼出")
+    cli.build_parser().parse_args(["input"])
+).target, f"{_device_config['TV_IP_Address']}:{_device_config['port']}",
+     "设备默认目标由 config.json 读取")
+t.eq(connection.options_from_args(cli.build_parser().parse_args(["input"])).adb,
+     _device_config["adb"], "ADB 默认路径由 config.json 读取")
+t.eq(connection.options_from_args(cli.build_parser().parse_args(
+    ["input", "--adb", "X:/adb.exe"]
+)).adb, "X:/adb.exe", "显式 ADB 路径覆盖配置")
+t.eq(connection.options_from_args(
+    cli.build_parser().parse_args(["input", "--TV_IP_Address", "1.2.3.4"])
+).target, f"1.2.3.4:{_device_config['port']}", "显式 IP 覆盖配置，端口沿用配置")
+t.eq(connection.options_from_args(
+    cli.build_parser().parse_args(["input", "--port", "1234"])
+).target, f"{_device_config['TV_IP_Address']}:1234", "显式端口覆盖配置，IP 沿用配置")
 _CN = ("R", "B", "DIM", "RED", "GRN", "YEL", "BLU", "MAG", "CYA", "GRY")
 _saved = {k: getattr(terminal.C, k) for k in _CN}
 _saved_on = terminal.C._on
@@ -1110,7 +1126,7 @@ try:
     snapshot_adapter.snapshot = _fixture_snapshot
     observe_interface.connect_for_cli = lambda args: _fake_device
     tree_interface.connect_for_cli = lambda args: _fake_device
-    mcp_interface._connect = lambda **kwargs: _fake_device
+    mcp_interface._connect = lambda **kwargs: (_fake_device, "fixture")
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         cli_observe_rc = cli.main(["observe", "--out", os.path.join(TD, "shared_observe.json")])
     with open(os.path.join(TD, "shared_observe.json"), encoding="utf-8") as source:

@@ -10,8 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from tvuitree.infrastructure.adb import DEFAULT_HOST, DEFAULT_PORT
-from tvuitree.application.connection import ConnectionOptions, connect_device
+from tvuitree.application.connection import connection_options, connect_device
 from tvuitree.application.observation import collect_full_json, collect_observation
 from tvuitree.domain.observation import error_observation
 
@@ -26,21 +25,18 @@ except ImportError as exc:  # pragma: no cover - depends on optional runtime dep
 mcp = FastMCP("tv-uitree")
 
 
-def _connect(*, host: str, port: int, serial: Optional[str], address: Optional[str],
+def _connect(*, TV_IP_Address: Optional[str], port: Optional[int],
              adb: Optional[str], no_connect: bool):
-    options = ConnectionOptions(
-        host=host, port=port, serial=serial, address=address, adb=adb,
-        no_connect=no_connect,
+    options = connection_options(
+        TV_IP_Address=TV_IP_Address, port=port, adb=adb, no_connect=no_connect,
     )
-    return connect_device(options, quiet=True)
+    return connect_device(options, quiet=True), options.target
 
 
 @mcp.tool()
 def observe_tv(
-    host: str = DEFAULT_HOST,
-    port: int = DEFAULT_PORT,
-    serial: Optional[str] = None,
-    address: Optional[str] = None,
+    TV_IP_Address: Optional[str] = None,
+    port: Optional[int] = None,
     adb: Optional[str] = None,
     no_connect: bool = False,
     no_dumpsys: bool = False,
@@ -48,12 +44,12 @@ def observe_tv(
 ) -> dict:
     """读取当前 TV 焦点、精简页面节点和 R0–R3 证据。"""
     try:
-        device = _connect(
-            host=host, port=port, serial=serial, address=address, adb=adb,
+        device, target = _connect(
+            TV_IP_Address=TV_IP_Address, port=port, adb=adb,
             no_connect=no_connect,
         )
         if device is None:
-            return error_observation(f"无法连接 TV：{serial or address or f'{host}:{port}'}")
+            return error_observation(f"无法连接 TV：{target}")
         return collect_observation(
             adb=device, serial=device.serial, quiet=True,
             use_dumpsys=not no_dumpsys, max_nodes=max_nodes,
@@ -64,18 +60,16 @@ def observe_tv(
 
 @mcp.tool()
 def get_full_tree(
-    host: str = DEFAULT_HOST,
-    port: int = DEFAULT_PORT,
-    serial: Optional[str] = None,
-    address: Optional[str] = None,
+    TV_IP_Address: Optional[str] = None,
+    port: Optional[int] = None,
     adb: Optional[str] = None,
     no_connect: bool = False,
     no_dumpsys: bool = False,
 ) -> dict:
     """读取当前 TV 的完整控件树；需要详细诊断时使用。"""
     try:
-        device = _connect(
-            host=host, port=port, serial=serial, address=address, adb=adb,
+        device, _target = _connect(
+            TV_IP_Address=TV_IP_Address, port=port, adb=adb,
             no_connect=no_connect,
         )
         if device is None:
