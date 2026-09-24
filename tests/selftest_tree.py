@@ -47,6 +47,7 @@ import os
 import shutil
 import sys
 import tempfile
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
@@ -1103,6 +1104,10 @@ _original_observe_connect = observe_interface.connect_for_cli
 _original_tree_connect = tree_interface.connect_for_cli
 _original_mcp_connect = mcp_interface._connect
 _original_mcp_capture = mcp_interface.capture
+_original_focus_dir = mcp_interface.FOCUS_SCREENSHOT_DIR
+_original_save_focus = mcp_interface._save_focus_screenshot
+_original_collect_observation = mcp_interface.collect_observation
+_original_render_focus_png = mcp_interface.render_focus_png
 _fake_device = SimpleNamespace(serial="fixture")
 
 
@@ -1129,6 +1134,7 @@ try:
     observe_interface.connect_for_cli = lambda args: _fake_device
     tree_interface.connect_for_cli = lambda args: _fake_device
     mcp_interface._connect = lambda **kwargs: (_fake_device, "fixture")
+    mcp_interface.FOCUS_SCREENSHOT_DIR = Path(TD) / "focus_screenshots"
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         cli_observe_rc = cli.main(["observe", "--out", os.path.join(TD, "shared_observe.json")])
     with open(os.path.join(TD, "shared_observe.json"), encoding="utf-8") as source:
@@ -1157,18 +1163,87 @@ try:
         mcp_interface.capture = lambda device: png
         shot_content = asyncio.run(mcp_interface.mcp.call_tool("get_focus_screenshot", {}))
         t.eq([item.type for item in shot_content], ["text", "image"],
-             "MCP 截图工具返回元数据和原生 image 内容")
+             "MCP 截图工具返回精简状态和原生 image 内容")
         shot_meta = json.loads(shot_content[0].text)
-        t.eq(shot_meta["focus"]["status"], "found", "截图元数据包含本次焦点状态")
-        t.eq((shot_meta["drawn"], shot_meta["skipped"]), (1, 0),
-             "截图只画一个 a11y 焦点框")
+        expected_keys = {"focus_found", "screenshot_captured", "focus_marked", "image_path"}
+        t.eq(set(shot_meta), expected_keys, "截图状态不重复焦点节点或绘制细节")
+        t.eq([shot_meta[key] for key in ("focus_found", "screenshot_captured", "focus_marked")],
+             [True, True, True], "唯一焦点、截图和红框均成功")
+        shot_path = Path(shot_meta["image_path"])
+        t.ok(shot_path.is_absolute() and shot_path.is_file(), "标注截图保存到本地绝对路径")
         t.eq(shot_content[1].mimeType, "image/png", "MCP 图像格式是 PNG")
         import base64
-        marked = Image.open(io.BytesIO(base64.b64decode(shot_content[1].data))).convert("RGB")
-        t.eq(marked.getpixel((468, 100)), image.COLOR_READING,
-             "MCP 截图的焦点读数左边界是红框")
+        returned_png = base64.b64decode(shot_content[1].data)
+        t.eq(shot_path.read_bytes(), returned_png, "本地文件与 MCP 图片是同一张标注图")
+        marked = Image.open(io.BytesIO(returned_png)).convert("RGB")
+        t.eq(image.focus_border_width(png), 6, "1080p 焦点红框宽 6 像素")
+        t.eq(image.focus_border_width(png2), 3, "540p 焦点红框按高度缩为 3 像素")
+        t.eq([marked.getpixel((x, 100)) for x in range(466, 472)],
+             [image.COLOR_READING] * 6, "焦点左边界有连续 6 像素红线")
+        t.eq(marked.getpixel((465, 100)), (40, 40, 40), "加粗边框外侧保持原图")
         t.eq(marked.getpixel((500, 100)), (40, 40, 40),
              "MCP 截图只画边框，不画中心十字")
+
+        next_shot = mcp_interface.get_focus_screenshot()
+        t.ok(next_shot[0]["image_path"] != str(shot_path), "每次截图保存到独立文件")
+        t.ok(Path(next_shot[0]["image_path"]).is_file(), "第二次截图文件存在")
+
+        for focus_status in ("not_found", "ambiguous"):
+            mcp_interface.collect_observation = (
+                lambda **kwargs: {"focus": {"status": focus_status}}
+            )
+            unmarked = mcp_interface.get_focus_screenshot()
+            t.eq([unmarked[0][key] for key in
+                  ("focus_found", "screenshot_captured", "focus_marked")],
+                 [False, True, False], f"{focus_status} 时截图仍成功但不标注")
+            t.eq(Path(unmarked[0]["image_path"]).read_bytes(), png,
+                 f"{focus_status} 时保存未标注的原始截图")
+        mcp_interface.collect_observation = _original_collect_observation
+
+        def _capture_failure(device):
+            raise ValueError("fixture screenshot failed")
+
+        mcp_interface.capture = _capture_failure
+        capture_failure = mcp_interface.get_focus_screenshot()[0]
+        t.eq([capture_failure[key] for key in
+              ("focus_found", "screenshot_captured", "focus_marked", "image_path")],
+             [True, False, False, None], "截图失败时四个状态字段仍齐全")
+        t.ok("截图失败" in capture_failure["error"], "截图失败返回简短错误")
+        mcp_interface.capture = lambda device: png
+
+        def _save_failure(data):
+            raise OSError("fixture disk full")
+
+        mcp_interface._save_focus_screenshot = _save_failure
+        save_failure_content = asyncio.run(mcp_interface.mcp.call_tool(
+            "get_focus_screenshot", {}))
+        save_failure = json.loads(save_failure_content[0].text)
+        t.eq([save_failure[key] for key in
+              ("focus_found", "screenshot_captured", "focus_marked", "image_path")],
+             [True, True, True, None], "保存失败不抹掉已取得的焦点和截图状态")
+        t.ok("截图保存失败" in save_failure["error"], "保存失败返回简短错误")
+        t.eq([item.type for item in save_failure_content], ["text", "image"],
+             "保存失败仍返回 MCP 图片")
+        mcp_interface._save_focus_screenshot = _original_save_focus
+
+        mcp_interface.render_focus_png = (
+            lambda obj, source: (source, {"boxes": ["focus"], "drawn": 0})
+        )
+        mark_failure = mcp_interface.get_focus_screenshot()[0]
+        t.eq([mark_failure[key] for key in
+              ("focus_found", "screenshot_captured", "focus_marked")],
+             [True, True, False], "画框失败仍返回截图")
+        t.ok(Path(mark_failure["image_path"]).is_file(), "画框失败仍保存原始截图")
+        t.ok("焦点框未能画到截图上" in mark_failure["error"], "画框失败给出错误")
+        mcp_interface.render_focus_png = _original_render_focus_png
+
+        mcp_interface._connect = lambda **kwargs: (None, "fixture")
+        connection_failure = mcp_interface.get_focus_screenshot()[0]
+        t.eq([connection_failure[key] for key in
+              ("focus_found", "screenshot_captured", "focus_marked", "image_path")],
+             [False, False, False, None], "连接失败时返回完整的失败状态")
+        t.ok("error" in connection_failure, "连接失败给出错误")
+        mcp_interface._connect = lambda **kwargs: (_fake_device, "fixture")
 
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         cli_tree_rc = cli.main(["tree", "--out", os.path.join(TD, "shared_tree.json")])
@@ -1190,14 +1265,22 @@ try:
          "采集失败时 MCP 返回结构化 error 状态")
     t.eq(mcp_interface.get_current_focus()["status"], "error",
          "独立焦点工具在采集失败时返回 error 状态")
-    t.ok("error" in mcp_interface.get_focus_screenshot()[0],
-         "截图工具采集失败时返回可读错误")
+    failed_focus_shot = mcp_interface.get_focus_screenshot()[0]
+    t.eq([failed_focus_shot[key] for key in
+          ("focus_found", "screenshot_captured", "focus_marked")],
+         [False, True, False], "焦点采集失败时仍返回未标注截图")
+    t.ok("焦点采集失败" in failed_focus_shot["error"],
+         "焦点采集失败时返回可读错误")
 finally:
     snapshot_adapter.snapshot = _original_snapshot
     observe_interface.connect_for_cli = _original_observe_connect
     tree_interface.connect_for_cli = _original_tree_connect
     mcp_interface._connect = _original_mcp_connect
     mcp_interface.capture = _original_mcp_capture
+    mcp_interface.FOCUS_SCREENSHOT_DIR = _original_focus_dir
+    mcp_interface._save_focus_screenshot = _original_save_focus
+    mcp_interface.collect_observation = _original_collect_observation
+    mcp_interface.render_focus_png = _original_render_focus_png
 
 # ================================================================== 收尾
 

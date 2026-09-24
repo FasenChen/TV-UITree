@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import uuid
+from pathlib import Path
 from typing import Optional
 
 from tvuitree.application.connection import connection_options, connect_device
@@ -26,6 +28,26 @@ except ImportError as exc:  # pragma: no cover - depends on optional runtime dep
 
 
 mcp = FastMCP("tv-uitree")
+FOCUS_SCREENSHOT_DIR = Path(__file__).resolve().parents[2] / "_temp" / "focus_screenshots"
+
+
+def _save_focus_screenshot(png: bytes) -> str:
+    FOCUS_SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    name = f"focus-{dt.datetime.now(dt.timezone.utc):%Y%m%dT%H%M%S%fZ}-{uuid.uuid4().hex}.png"
+    path = FOCUS_SCREENSHOT_DIR / name
+    created = False
+    try:
+        with path.open("xb") as output:
+            created = True
+            output.write(png)
+    except Exception:
+        if created:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+    return str(path)
 
 
 def _connect(*, TV_IP_Address: Optional[str], port: Optional[int],
@@ -166,38 +188,64 @@ def get_focus_screenshot(
     port: Optional[int] = None,
     adb: Optional[str] = None,
 ) -> list:
-    """返回当前 TV 截图的 PNG 图像，并用红框标出 a11y 焦点读数。"""
+    """返回截图结果和 PNG；唯一 a11y 焦点用加粗红框标出。"""
+    status = {
+        "focus_found": False,
+        "screenshot_captured": False,
+        "focus_marked": False,
+        "image_path": None,
+    }
     try:
         device, target = _connect(
             TV_IP_Address=TV_IP_Address, port=port, adb=adb,
             no_connect=False,
         )
-        if device is None:
-            return [{"error": f"无法连接 TV：{target}"}]
+    except Exception as exc:
+        status["error"] = f"连接 TV 失败：{exc}"
+        return [status]
+    if device is None:
+        status["error"] = f"无法连接 TV：{target}"
+        return [status]
+
+    errors = []
+    full = None
+    try:
         full = collect_full_json(
             adb=device, serial=device.serial, quiet=True,
             use_dumpsys=False,
         )
         observation = collect_observation(full_json=full)
-        png = capture(device)
-        screenshot_at = dt.datetime.now().isoformat(timespec="seconds")
-        annotated_png, result = render_focus_png(full, png)
-        if result["boxes"] and not result["drawn"]:
-            return [{"error": "焦点框未能画到截图上", "notes": result["notes"]}]
-        metadata = {
-            "focus": _focus_info(observation["focus"], full),
-            "captured_at": full.get("captured_at"),
-            "screenshot_at": screenshot_at,
-            "drawn": result["drawn"],
-            "skipped": result["skipped"],
-            "warnings": observation["warnings"],
-            "notes": result["notes"],
-        }
-        if not result["boxes"]:
-            metadata["notes"].append("当前 a11y 树没有可绘制的焦点屏幕坐标；截图未加框")
-        return [metadata, Image(data=annotated_png, format="png")]
+        status["focus_found"] = observation["focus"]["status"] == "found"
     except Exception as exc:
-        return [{"error": str(exc), "error_type": type(exc).__name__}]
+        errors.append(f"焦点采集失败：{exc}")
+
+    try:
+        png = capture(device)
+    except Exception as exc:
+        errors.append(f"截图失败：{exc}")
+        status["error"] = "；".join(errors)
+        return [status]
+
+    status["screenshot_captured"] = True
+    output_png = png
+    if status["focus_found"] and full is not None:
+        try:
+            output_png, result = render_focus_png(full, png)
+            status["focus_marked"] = result["drawn"] == 1 and len(result["boxes"]) == 1
+            if not status["focus_marked"]:
+                errors.append("焦点框未能画到截图上")
+        except Exception as exc:
+            errors.append(f"焦点标注失败：{exc}")
+            output_png = png
+
+    try:
+        status["image_path"] = _save_focus_screenshot(output_png)
+    except Exception as exc:
+        errors.append(f"截图保存失败：{exc}")
+    if errors:
+        status["error"] = "；".join(errors)
+    return [status, Image(data=output_png, format="png")]
+
 
 
 @mcp.tool()

@@ -16,6 +16,14 @@ DASH_OFF = 6
 CROSS_ARM = 12
 
 
+def focus_border_width(png_bytes: bytes) -> int:
+    """Scale the MCP focus border with the PNG height (6 px at 1080p)."""
+    if len(png_bytes) < 24 or png_bytes[:8] != b"\x89PNG\r\n\x1a\n" or png_bytes[12:16] != b"IHDR":
+        return 6
+    height = int.from_bytes(png_bytes[20:24], "big")
+    return max(1, round(height / 180))
+
+
 def load_tree(path: str) -> dict:
     try:
         with open(path, "r", encoding="utf-8") as f:

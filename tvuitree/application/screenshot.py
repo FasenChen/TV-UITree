@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from tvuitree.domain.screenshot import collect, compare_focus
-from tvuitree.infrastructure.image import draw_boxes, draw_boxes_png
+from tvuitree.infrastructure.image import draw_boxes, draw_boxes_png, focus_border_width
 
 
 def render(obj: dict, png: bytes, out_path: str, *, draw: str = "focus",
@@ -22,10 +22,16 @@ def render(obj: dict, png: bytes, out_path: str, *, draw: str = "focus",
 
 
 def render_focus_png(obj: dict, png: bytes) -> tuple[bytes, dict]:
-    """Return an in-process PNG with only the a11y focus border in red."""
+    """Draw one red a11y focus border, or return the original PNG if ambiguous."""
     boxes, warnings = collect(obj, "focus", "a11y")
+    if len(boxes) != 1:
+        return png, {
+            "boxes": boxes, "warnings": warnings, "drawn": 0,
+            "skipped": len(boxes), "notes": [],
+        }
     image, drawn, skipped, notes = draw_boxes_png(
-        png, boxes, obj.get("screen") or {}, width=3, show_details=False,
+        png, boxes, obj.get("screen") or {},
+        width=focus_border_width(png), show_details=False,
     )
     return image, {
         "boxes": boxes, "warnings": warnings, "drawn": drawn,
