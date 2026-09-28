@@ -52,11 +52,12 @@ from pathlib import Path
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 
-from tvuitree.domain import component, observation as domain_observation, screenshot
+from tvuitree.domain import component, observation as domain_observation, screenshot, visible as domain_visible
 from tvuitree.domain.tree import models, parsing, matching, capture, output as tree_output, pruning
 from tvuitree.application import input as remote_input, observation as application_observation
 from tvuitree.infrastructure import adb, image
-from tvuitree.interfaces import cli, connection, terminal, observe as observe_interface, tree as tree_interface
+from tvuitree.interfaces import (cli, connection, terminal, observe as observe_interface,
+                                tree as tree_interface, visible as visible_interface)
 
 
 # ================================================================== 断言收集器
@@ -1102,6 +1103,7 @@ from tvuitree.interfaces import mcp as mcp_interface
 _original_snapshot = snapshot_adapter.snapshot
 _original_observe_connect = observe_interface.connect_for_cli
 _original_tree_connect = tree_interface.connect_for_cli
+_original_visible_connect = visible_interface.connect_for_cli
 _original_mcp_connect = mcp_interface._connect
 _original_mcp_capture = mcp_interface.capture
 _original_focus_dir = mcp_interface.FOCUS_SCREENSHOT_DIR
@@ -1133,6 +1135,7 @@ try:
     snapshot_adapter.snapshot = _fixture_snapshot
     observe_interface.connect_for_cli = lambda args: _fake_device
     tree_interface.connect_for_cli = lambda args: _fake_device
+    visible_interface.connect_for_cli = lambda args: _fake_device
     mcp_interface._connect = lambda **kwargs: (_fake_device, "fixture")
     mcp_interface.FOCUS_SCREENSHOT_DIR = Path(TD) / "focus_screenshots"
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -1158,6 +1161,9 @@ try:
     for name in ("get_current_focus", "get_focus_screenshot"):
         t.eq(set(mcp_schemas[name]["properties"]), {"TV_IP_Address", "port", "adb"},
              f"{name} 只公开设备连接参数")
+    t.eq(set(mcp_schemas["get_visible"]["properties"]),
+         {"TV_IP_Address", "port", "adb", "no_connect"},
+         "get_visible 只公开设备连接参数，不采集无关的 dumpsys")
 
     if has_pil:
         mcp_interface.capture = lambda device: png
@@ -1176,14 +1182,14 @@ try:
         import base64
         returned_png = base64.b64decode(shot_content[1].data)
         t.eq(shot_path.read_bytes(), returned_png, "本地文件与 MCP 图片是同一张标注图")
+        t.eq(shot_meta["image_base64"], shot_content[1].data,
+             "状态 JSON 的 Base64 与 MCP 图片内容一致")
         marked = Image.open(io.BytesIO(returned_png)).convert("RGB")
         t.eq(image.focus_border_width(png), 6, "1080p 焦点红框宽 6 像素")
         t.eq(image.focus_border_width(png2), 3, "540p 焦点红框按高度缩为 3 像素")
         t.eq([marked.getpixel((x, 100)) for x in range(466, 472)],
              [image.COLOR_READING] * 6, "焦点左边界有连续 6 像素红线")
         t.eq(marked.getpixel((465, 100)), (40, 40, 40), "加粗边框外侧保持原图")
-        t.eq(shot_meta["image_base64"], shot_content[1].data,
-             "状态 JSON 的 Base64 与 MCP 图片内容一致")
         t.eq(marked.getpixel((500, 100)), (40, 40, 40),
              "MCP 截图只画边框，不画中心十字")
 
@@ -1201,14 +1207,14 @@ try:
                  [False, True, False], f"{focus_status} 时截图仍成功但不标注")
             t.eq(Path(unmarked[0]["image_path"]).read_bytes(), png,
                  f"{focus_status} 时保存未标注的原始截图")
+            t.eq(base64.b64decode(unmarked[0]["image_base64"]), png,
+                 f"{focus_status} 时 Base64 返回未标注的原始截图")
         mcp_interface.collect_observation = _original_collect_observation
 
         def _capture_failure(device):
             raise ValueError("fixture screenshot failed")
 
         mcp_interface.capture = _capture_failure
-            t.eq(base64.b64decode(unmarked[0]["image_base64"]), png,
-                 f"{focus_status} 时 Base64 返回未标注的原始截图")
         capture_failure = mcp_interface.get_focus_screenshot()[0]
         t.eq([capture_failure[key] for key in
               ("focus_found", "screenshot_captured", "focus_marked", "image_path",
@@ -1227,14 +1233,14 @@ try:
         t.eq([save_failure[key] for key in
               ("focus_found", "screenshot_captured", "focus_marked", "image_path")],
              [True, True, True, None], "保存失败不抹掉已取得的焦点和截图状态")
+        t.eq(save_failure["image_base64"], save_failure_content[1].data,
+             "保存失败仍在状态 JSON 中返回截图 Base64")
         t.ok("截图保存失败" in save_failure["error"], "保存失败返回简短错误")
         t.eq([item.type for item in save_failure_content], ["text", "image"],
              "保存失败仍返回 MCP 图片")
         mcp_interface._save_focus_screenshot = _original_save_focus
 
         mcp_interface.render_focus_png = (
-        t.eq(save_failure["image_base64"], save_failure_content[1].data,
-             "保存失败仍在状态 JSON 中返回截图 Base64")
             lambda obj, source: (source, {"boxes": ["focus"], "drawn": 0})
         )
         mark_failure = mcp_interface.get_focus_screenshot()[0]
@@ -1242,14 +1248,14 @@ try:
               ("focus_found", "screenshot_captured", "focus_marked")],
              [True, True, False], "画框失败仍返回截图")
         t.ok(Path(mark_failure["image_path"]).is_file(), "画框失败仍保存原始截图")
+        t.eq(base64.b64decode(mark_failure["image_base64"]), png,
+             "画框失败时 Base64 返回原始截图")
         t.ok("焦点框未能画到截图上" in mark_failure["error"], "画框失败给出错误")
         mcp_interface.render_focus_png = _original_render_focus_png
 
         mcp_interface._connect = lambda **kwargs: (None, "fixture")
         connection_failure = mcp_interface.get_focus_screenshot()[0]
         t.eq([connection_failure[key] for key in
-        t.eq(base64.b64decode(mark_failure["image_base64"]), png,
-             "画框失败时 Base64 返回原始截图")
               ("focus_found", "screenshot_captured", "focus_marked", "image_path",
                "image_base64")],
              [False, False, False, None, None], "连接失败时返回完整的失败状态")
@@ -1265,6 +1271,96 @@ try:
     t.eq(_without_capture_time(cli_tree), _without_capture_time(mcp_tree),
          "CLI 与 MCP 对同一快照返回相同完整树 JSON")
 
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        cli_visible_rc = cli.main(["visible", "--out", os.path.join(TD, "shared_visible.json")])
+    with open(os.path.join(TD, "shared_visible.json"), encoding="utf-8") as source:
+        cli_visible = json.load(source)
+    mcp_visible = mcp_interface.get_visible()
+    t.eq(cli_visible_rc, 0, "CLI 可视树退出码")
+    t.eq(_without_capture_time(cli_visible), _without_capture_time(mcp_visible),
+         "CLI 与 MCP 对同一快照返回相同可视树 JSON")
+    t.eq(set(mcp_visible), {"schema_version", "mode", "captured_at", "screen",
+                            "focus", "page"}, "可视结果保留观察所需的焦点和页面结构")
+    t.eq(mcp_visible["schema_version"], "tv-visible/v1", "可视摘要使用独立版本")
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        offline_visible_rc = cli.main([
+            "visible", "--from-json", os.path.join(TD, "shared_tree.json"),
+            "--out", os.path.join(TD, "offline_visible.json"),
+        ])
+    with open(os.path.join(TD, "offline_visible.json"), encoding="utf-8") as source:
+        offline_visible = json.load(source)
+    t.eq(offline_visible_rc, 0, "离线可视树退出码")
+    t.eq(offline_visible, cli_visible, "离线与实时可视筛选使用同一逻辑")
+
+    sample = {"mode": "full", "screen": {"width": 100, "height": 80}, "tree": [
+        {"source": "a11y", "class": "root", "bounds_screen": None, "children": [
+            {"source": "a11y", "class": "partial", "text": "inside",
+             "bounds_screen": [-4, 4, 5, 15], "children": []},
+            {"source": "a11y", "class": "duplicate", "text": "inside",
+             "bounds_screen": [10, 10, 20, 20], "children": []},
+            {"source": "a11y", "class": "outside", "text": "outside", "focused": True,
+             "bounds_screen": [100, 4, 110, 15], "children": []},
+            {"source": "a11y", "class": "zero", "text": "zero",
+             "bounds_screen": [4, 4, 4, 15], "children": []},
+            {"source": "a11y", "class": "missing", "text": "missing",
+             "bounds_screen": None, "children": []},
+            {"source": "a11y", "class": "unlabeled", "content_desc": "semantic-only",
+             "bounds_screen": [4, 4, 10, 15], "children": []},
+            {"source": "a11y", "class": "hidden", "text": "hidden",
+             "visible_to_user": False,
+             "bounds_screen": [4, 4, 10, 15], "children": [
+                 {"source": "a11y", "class": "hidden-child", "text": "hidden-child",
+                  "bounds_screen": [4, 4, 10, 15], "children": []},
+             ]},
+            {"source": "dumpsys", "class": "derived", "text": "derived", "visible": True,
+             "bounds_local": [1, 1, 5, 5], "pred_visible_rect": [2, 2, 6, 6],
+             "children": []},
+            {"source": "dumpsys", "class": "gone", "text": "gone", "gone": True,
+             "pred_visible_rect": [2, 2, 6, 6], "children": []},
+        ]},
+    ]}
+    projected = domain_visible.select_visible(sample)
+    t.eq([node["labels"] for node in projected["page"]["nodes"]],
+         [["inside"], ["inside"]], "屏内文字保留两个实际位置，空容器和派生候选不输出")
+    t.eq([node["bounds"] for node in projected["page"]["nodes"]],
+         [[-4, 4, 5, 15], [10, 10, 20, 20]], "可视摘要保留 a11y 原始屏幕读数")
+    t.eq(projected["focus"], {"status": "missing"}, "无可视焦点时不猜测焦点")
+    t.eq(sample["tree"][0]["children"][0]["text"], "inside",
+         "筛选不会修改输入的完整树")
+    ellipsis_sample = {"screen": {"width": 100, "height": 80}, "tree": [
+        {"source": "a11y", "text": "address ...", "bounds_screen": [1, 1, 20, 10],
+         "children": []},
+        {"source": "a11y", "text": "address\n192.168.1.1",
+         "bounds_screen": [30, 1, 90, 25], "children": []},
+    ]}
+    t.eq([node["labels"] for node in
+          domain_visible.select_visible(ellipsis_sample)["page"]["nodes"]],
+         [["address\n192.168.1.1"]], "完整文字在屏幕上时不重复输出省略号摘要")
+    row_sample = {"screen": {"width": 100, "height": 80}, "tree": [
+        {"source": "a11y", "class": "Row", "bounds_screen": [0, 0, 80, 60],
+         "clickable": True, "focusable": True, "focused": True, "children": [
+             {"source": "a11y", "class": "TextView", "text": "IP address",
+              "bounds_screen": [5, 5, 40, 20], "children": []},
+             {"source": "a11y", "class": "TextView", "text": "192.168.1.1",
+              "bounds_screen": [5, 25, 60, 40], "children": []},
+         ]},
+    ]}
+    grouped = domain_visible.select_visible(row_sample)
+    t.eq(grouped["focus"], {"status": "found", "path": "0"},
+         "焦点引用页面项，不重复整份节点")
+    t.eq([node["labels"] for node in grouped["page"]["nodes"]],
+         [["IP address", "192.168.1.1"]], "同一可操作行的标题和值合并")
+    t.eq(grouped["page"]["nodes"][0]["actions"], ["click", "focus"],
+         "可见控件保留操作能力")
+    icon_sample = {"screen": {"width": 100, "height": 80}, "tree": [
+        {"source": "a11y", "class": "ImageButton", "content_desc": "Back",
+         "bounds_screen": [5, 5, 30, 30], "clickable": True, "children": []},
+    ]}
+    icon_node = domain_visible.select_visible(icon_sample)["page"]["nodes"][0]
+    t.eq(icon_node["accessibility_labels"], ["Back"],
+         "可见图标的无障碍描述单独标记，不冒充屏幕文字")
+    t.not_has(icon_node, "labels", "无显示文字的图标不生成文字标签")
+
     def _failed_snapshot(*args, **kwargs):
         raise adb.AdbError("fixture capture failed")
 
@@ -1276,6 +1372,8 @@ try:
          "采集失败时 MCP 返回结构化 error 状态")
     t.eq(mcp_interface.get_current_focus()["status"], "error",
          "独立焦点工具在采集失败时返回 error 状态")
+    t.eq(mcp_interface.get_visible()["mode"], "visible",
+         "可视工具采集失败时保留 visible 模式")
     failed_focus_shot = mcp_interface.get_focus_screenshot()[0]
     t.eq([failed_focus_shot[key] for key in
           ("focus_found", "screenshot_captured", "focus_marked")],
@@ -1286,6 +1384,7 @@ finally:
     snapshot_adapter.snapshot = _original_snapshot
     observe_interface.connect_for_cli = _original_observe_connect
     tree_interface.connect_for_cli = _original_tree_connect
+    visible_interface.connect_for_cli = _original_visible_connect
     mcp_interface._connect = _original_mcp_connect
     mcp_interface.capture = _original_mcp_capture
     mcp_interface.FOCUS_SCREENSHOT_DIR = _original_focus_dir

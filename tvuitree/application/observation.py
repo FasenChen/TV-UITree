@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 from tvuitree.domain.observation import DEFAULT_MAX_NODES, summarize_full_json
+from tvuitree.domain.visible import select_visible
 
 def collect_full_json(*, adb, serial: Optional[str], save_raw: Optional[str] = None,
                       quiet: bool = False, use_dumpsys: bool = True) -> dict:
@@ -53,3 +54,17 @@ def collect_observation(*, adb=None, serial: Optional[str] = None,
         )
     parse_anomalies = full_json.get("_parse_anomalies") if isinstance(full_json, dict) else None
     return summarize_full_json(full_json, max_nodes=max_nodes, parse_anomalies=parse_anomalies)
+
+
+def collect_visible(*, adb=None, serial: Optional[str] = None,
+                    full_json: Optional[dict] = None,
+                    save_raw: Optional[str] = None, quiet: bool = False) -> dict:
+    """Return the visible tree projection from a live or saved full snapshot."""
+    if full_json is None:
+        if adb is None:
+            raise ValueError("collect_visible 需要 adb 或 full_json")
+        full_json = collect_full_json(
+            adb=adb, serial=serial, save_raw=save_raw, quiet=quiet,
+            use_dumpsys=False,
+        )
+    return select_visible(full_json)

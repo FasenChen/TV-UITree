@@ -10,6 +10,7 @@ from .connection import add_conn_args
 from .terminal import setup_console
 from .tree import run_tree
 from .observe import run_observe
+from .visible import run_visible
 from .input import run_input
 from .shot import run_shot
 
@@ -36,6 +37,12 @@ def build_parser() -> argparse.ArgumentParser:
     tree.add_argument("--out", metavar="FILE", help="将 JSON 写入文件")
     tree.add_argument("--no-dumpsys", action="store_true", help="只采集 a11y 树")
     tree.add_argument("--save-raw", metavar="DIR", help="保存采集原文")
+
+    visible = commands.add_parser("visible", help="当前屏幕的可见控件摘要和焦点")
+    add_conn_args(visible)
+    visible.add_argument("--from-json", metavar="FILE", help="从已有 full JSON 离线筛选")
+    visible.add_argument("--out", metavar="FILE", help="将可见摘要 JSON 写入文件")
+    visible.add_argument("--save-raw", metavar="DIR", help="保存采集原文")
 
     remote = commands.add_parser("input", help="发送遥控器按键")
     add_conn_args(remote)
@@ -73,6 +80,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     return {
         "observe": run_observe,
         "tree": run_tree,
+        "visible": run_visible,
         "input": run_input,
         "shot": run_shot,
     }[args.command](args)

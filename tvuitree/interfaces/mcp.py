@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from tvuitree.application.connection import connection_options, connect_device
-from tvuitree.application.observation import collect_full_json, collect_observation
+from tvuitree.application.observation import collect_full_json, collect_observation, collect_visible
 from tvuitree.application.screenshot import render_focus_png
 from tvuitree.domain.observation import error_observation
 from tvuitree.infrastructure.image import capture
@@ -300,3 +300,25 @@ def get_full_tree(
         return full
     except Exception as exc:  # MCP 工具返回可读错误，不向宿主泄漏 traceback
         return {"error": str(exc), "error_type": type(exc).__name__, "mode": "full"}
+
+
+@mcp.tool()
+def get_visible(
+    TV_IP_Address: Optional[str] = None,
+    port: Optional[int] = None,
+    adb: Optional[str] = None,
+    no_connect: bool = False,
+) -> dict:
+    """读取当前屏幕内的控件摘要和焦点，排除屏外节点与空布局。"""
+    try:
+        device, _target = _connect(
+            TV_IP_Address=TV_IP_Address, port=port, adb=adb,
+            no_connect=no_connect,
+        )
+        if device is None:
+            return {"error": "无法连接 TV", "mode": "visible"}
+        return collect_visible(
+            adb=device, serial=device.serial, quiet=True,
+        )
+    except Exception as exc:
+        return {"error": str(exc), "error_type": type(exc).__name__, "mode": "visible"}
