@@ -188,7 +188,7 @@ MCP 工具没有 `--from-json`、`--out` 或按键参数；每次调用都会重
 
 `get_current_focus` 返回 `status` 和精简的焦点 `node`（标签、可选摘要、控件类、资源 ID、包名、坐标及其来源）。标签和摘要会从焦点容器下可见的文本节点中提取，因此焦点落在无文字的布局容器上时，仍能返回容器所代表的项目名称；例如设置列表会返回 `label: Network & Internet` 和对应的网络摘要。工具不会返回重复的 `candidates`，也不会附带祖先、同级节点或子节点。若焦点有多个候选，则返回精简候选列表；若焦点缺失或采集失败，则返回状态和原因。完整上下文仍可通过 `observe_tv.focus` 获取。
 
-`get_focus_screenshot` 返回精简的文本 JSON 和可直接显示的 MCP `image/png` 内容。JSON 固定包含 `focus_found`（找到唯一 a11y 焦点）、`screenshot_captured`（取得 PNG）、`focus_marked`（在截图上成功画出唯一红框）和 `image_path`（服务器本机保存的 PNG 绝对路径；未保存时为 `null`）；连接、采集、绘制或保存失败时额外包含简短的 `error`。每次调用都在 Git 忽略的 `_temp/focus_screenshots/` 下保存独立文件。红框只使用 a11y 的 `bounds_screen` 读数，1080p 线宽为 6 像素，并随图片高度缩放，不用 dumpsys 派生坐标猜位置。没有唯一焦点时仍返回未标注的截图和路径；若保存失败但已取得 PNG，仍返回 MCP 图片。`image_path` 是 MCP 服务所在电脑的本地路径，其他电脑上的客户端应使用返回的 MCP 图片内容。
+`get_focus_screenshot` 返回精简的文本 JSON 和可直接显示的 MCP `image/png` 内容。JSON 固定包含 `focus_found`（找到唯一 a11y 焦点）、`screenshot_captured`（取得 PNG）、`focus_marked`（在截图上成功画出唯一红框）、`image_path`（服务器本机保存的 PNG 绝对路径；未保存时为 `null`）和 `image_base64`（同一张 PNG 的纯 Base64 字符串；未取得截图时为 `null`）；连接、采集、绘制或保存失败时额外包含简短的 `error`。每次调用都在 Git 忽略的 `_temp/focus_screenshots/` 下保存独立文件。红框只使用 a11y 的 `bounds_screen` 读数，1080p 线宽为 6 像素，并随图片高度缩放，不用 dumpsys 派生坐标猜位置。没有唯一焦点时仍返回未标注的截图和路径；若保存失败但已取得 PNG，仍返回 MCP 图片及 `image_base64`。`image_path` 是 MCP 服务所在电脑的本地路径，其他电脑上的客户端可使用返回的 MCP 图片内容或 `image_base64`。
 
 ## 用 MCP Inspector 网页调试
 

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import uuid
 from pathlib import Path
@@ -194,6 +195,7 @@ def get_focus_screenshot(
         "screenshot_captured": False,
         "focus_marked": False,
         "image_path": None,
+        "image_base64": None,
     }
     try:
         device, target = _connect(
@@ -238,6 +240,7 @@ def get_focus_screenshot(
             errors.append(f"焦点标注失败：{exc}")
             output_png = png
 
+    status["image_base64"] = base64.b64encode(output_png).decode("ascii")
     try:
         status["image_path"] = _save_focus_screenshot(output_png)
     except Exception as exc:

@@ -1165,7 +1165,8 @@ try:
         t.eq([item.type for item in shot_content], ["text", "image"],
              "MCP 截图工具返回精简状态和原生 image 内容")
         shot_meta = json.loads(shot_content[0].text)
-        expected_keys = {"focus_found", "screenshot_captured", "focus_marked", "image_path"}
+        expected_keys = {"focus_found", "screenshot_captured", "focus_marked",
+                         "image_path", "image_base64"}
         t.eq(set(shot_meta), expected_keys, "截图状态不重复焦点节点或绘制细节")
         t.eq([shot_meta[key] for key in ("focus_found", "screenshot_captured", "focus_marked")],
              [True, True, True], "唯一焦点、截图和红框均成功")
@@ -1181,6 +1182,8 @@ try:
         t.eq([marked.getpixel((x, 100)) for x in range(466, 472)],
              [image.COLOR_READING] * 6, "焦点左边界有连续 6 像素红线")
         t.eq(marked.getpixel((465, 100)), (40, 40, 40), "加粗边框外侧保持原图")
+        t.eq(shot_meta["image_base64"], shot_content[1].data,
+             "状态 JSON 的 Base64 与 MCP 图片内容一致")
         t.eq(marked.getpixel((500, 100)), (40, 40, 40),
              "MCP 截图只画边框，不画中心十字")
 
@@ -1204,10 +1207,13 @@ try:
             raise ValueError("fixture screenshot failed")
 
         mcp_interface.capture = _capture_failure
+            t.eq(base64.b64decode(unmarked[0]["image_base64"]), png,
+                 f"{focus_status} 时 Base64 返回未标注的原始截图")
         capture_failure = mcp_interface.get_focus_screenshot()[0]
         t.eq([capture_failure[key] for key in
-              ("focus_found", "screenshot_captured", "focus_marked", "image_path")],
-             [True, False, False, None], "截图失败时四个状态字段仍齐全")
+              ("focus_found", "screenshot_captured", "focus_marked", "image_path",
+               "image_base64")],
+             [True, False, False, None, None], "截图失败时状态字段仍齐全")
         t.ok("截图失败" in capture_failure["error"], "截图失败返回简短错误")
         mcp_interface.capture = lambda device: png
 
@@ -1227,6 +1233,8 @@ try:
         mcp_interface._save_focus_screenshot = _original_save_focus
 
         mcp_interface.render_focus_png = (
+        t.eq(save_failure["image_base64"], save_failure_content[1].data,
+             "保存失败仍在状态 JSON 中返回截图 Base64")
             lambda obj, source: (source, {"boxes": ["focus"], "drawn": 0})
         )
         mark_failure = mcp_interface.get_focus_screenshot()[0]
@@ -1240,8 +1248,11 @@ try:
         mcp_interface._connect = lambda **kwargs: (None, "fixture")
         connection_failure = mcp_interface.get_focus_screenshot()[0]
         t.eq([connection_failure[key] for key in
-              ("focus_found", "screenshot_captured", "focus_marked", "image_path")],
-             [False, False, False, None], "连接失败时返回完整的失败状态")
+        t.eq(base64.b64decode(mark_failure["image_base64"]), png,
+             "画框失败时 Base64 返回原始截图")
+              ("focus_found", "screenshot_captured", "focus_marked", "image_path",
+               "image_base64")],
+             [False, False, False, None, None], "连接失败时返回完整的失败状态")
         t.ok("error" in connection_failure, "连接失败给出错误")
         mcp_interface._connect = lambda **kwargs: (_fake_device, "fixture")
 
