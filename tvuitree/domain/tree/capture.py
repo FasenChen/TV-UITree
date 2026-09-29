@@ -40,20 +40,24 @@ def _flat(roots) -> list:
 def run_align(snap: dict, quiet: bool = False) -> tuple:
     u2_roots = parse_u2_xml(snap["xml"])
     view_roots = snap["block"].roots if snap["block"] else []
-    scr = (0, 0, snap["screen"].get("width") or 0, snap["screen"].get("height") or 0)
-    st = align(u2_roots, view_roots, snap["pkg"], scr if scr[2] else None)
-    st.window_note = snap["pick_note"]
 
-    # 窗口一致性：a11y 根节点自报的 package 必须与选中的 dumpsys 段一致
+    # 窗口一致性：a11y 根节点自报的 package 必须与选中的 dumpsys 段一致。
+    # 必须在 align() 之前判：align() 会把配对结果直接写到 U2Node 上，
+    # 事后只换统计不清节点，统一树里仍会带着另一个窗口的配对和补入节点。
     if u2_roots and view_roots:
         up = u2_roots[0].package
         if up and snap["pkg"] and up != snap["pkg"]:
+            u_nodes, v_nodes = u2_all(u2_roots), _flat(view_roots)
+            st = AlignStats(a11y_nodes=len(u_nodes), view_nodes=len(v_nodes))
             st.align_skipped = (
                 f"a11y 根节点自报 package={up}，与选中的 dumpsys 段 package={snap['pkg']} "
                 f"不一致；两棵树不是同一个窗口，**不做任何配对**。")
-            st2 = AlignStats(a11y_nodes=st.a11y_nodes, view_nodes=st.view_nodes)
-            st2.align_skipped = st.align_skipped
-            st2.a11y_unpaired = u2_all(u2_roots)
-            st2.view_unpaired = _flat(view_roots)
-            return u2_roots, view_roots, st2
+            st.a11y_unpaired = u_nodes
+            st.view_unpaired = v_nodes
+            st.window_note = snap["pick_note"]
+            return u2_roots, view_roots, st
+
+    scr = (0, 0, snap["screen"].get("width") or 0, snap["screen"].get("height") or 0)
+    st = align(u2_roots, view_roots, snap["pkg"], scr if scr[2] else None)
+    st.window_note = snap["pick_note"]
     return u2_roots, view_roots, st

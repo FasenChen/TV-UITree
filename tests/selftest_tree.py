@@ -665,6 +665,26 @@ t.ok(all("dumpsys" not in n for n in flat(no_d["tree"])),
      "--no-dumpsys 时节点上没有 dumpsys 子字典")
 t.eq(no_d["align_stats"]["view_nodes"], 0, "--no-dumpsys 时 view 节点数为 0")
 
+# 包名不一致：a11y 与所选 dumpsys 段不是同一个窗口（真机上前台是对话框/输入法、
+# 段匹配回退时会出现）→ 不做任何配对，节点上也不能残留配对结果或补入节点
+mm_snap = {"xml": A11Y, "block": parsing.parse_dumpsys_top(DUMPSYS, [])[0],
+           "pkg": "com.other", "pick_note": "fixture note", "screen": SCREEN,
+           "drift": False, "drift_detail": None}
+mm_roots, mm_views, mm_st = capture.run_align(mm_snap, True)
+mm = tree_output.build_full_json(mm_roots, mm_views, {"version": "x", "info": {}},
+                                 {}, SCREEN, WIN, mm_st, mm_snap["pkg"], mm_snap)
+t.ok(mm["align_stats"]["align_skipped"], "包名不一致时写明跳过配对")
+t.eq(mm["align_stats"]["paired"], 0, "包名不一致时配对数为 0")
+t.ok(all(u.view is None and u.match_reason is None for u in matching.u2_all(mm_roots)),
+     "包名不一致时 a11y 节点上不残留配对结果")
+t.eq(count(mm["tree"]), EXP_A11Y_NODES, "包名不一致时树只剩 a11y 节点")
+t.ok(all(n["source"] == "a11y" and "dumpsys" not in n and n.get("geom_check") is None
+         for n in flat(mm["tree"])),
+     "包名不一致时树里没有另一个窗口的 dumpsys 证据")
+t.eq(mm["align_stats"]["view_unpaired"], EXP_VIEW_NODES,
+     "包名不一致时 view 节点全部未定位（守恒）")
+t.eq(mm["align_stats"]["window_note"], "fixture note", "包名不一致时保留段匹配说明")
+
 
 # ================================================================== 5. 剪枝
 
