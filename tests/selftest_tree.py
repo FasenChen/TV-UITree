@@ -685,6 +685,34 @@ t.eq(mm["align_stats"]["view_unpaired"], EXP_VIEW_NODES,
      "包名不一致时 view 节点全部未定位（守恒）")
 t.eq(mm["align_stats"]["window_note"], "fixture note", "包名不一致时保留段匹配说明")
 
+# dumpsys_only 是「未定位节点」组成的森林：每个未定位节点恰好输出一次，
+# 已配对的后代只出现在主树里（否则同一个 View 会被列两次、画两个框）
+t.eq(len(mm["dumpsys_only"]), 1, "全部未定位时 dumpsys_only 只有 DecorView 一棵子树")
+t.eq(count(mm["dumpsys_only"]), EXP_VIEW_NODES, "嵌套的未定位节点在 dumpsys_only 里只出现一次")
+nest_snap = {
+    "xml": ("<hierarchy rotation='0'><node class='android.widget.TextView' "
+            "package='com.demo' text='A' bounds='[0,0][480,200]'/></hierarchy>"),
+    "pkg": PKG, "pick_note": None, "screen": SCREEN, "drift": False, "drift_detail": None,
+    "block": parsing.parse_dumpsys_top("\n".join([
+        "  ACTIVITY com.demo/.MainActivity deadbeef pid=100 userId=0",
+        "    View Hierarchy:",
+        "      android.widget.FrameLayout{bbb0001 V.E...... ......ID 0,0-1920,1080}",
+        "        android.widget.TextView{bbb0002 V.E...... ......ID 0,0-480,200}",
+        "      android.widget.FrameLayout{bbb0003 V.E...... ......ID 0,0-10,10}",
+        "",
+    ]), [])[0],
+}
+nest_roots, nest_views, nest_st = capture.run_align(nest_snap, True)
+nest = tree_output.build_full_json(nest_roots, nest_views, {"version": "x", "info": {}},
+                                   {}, SCREEN, WIN, nest_st, PKG, nest_snap)
+t.eq(nest_st.by_reason, {"geom": 1}, "两个 view 根时只有子节点靠 R1 配上")
+t.eq(sorted(n["view_hash"] for n in flat(nest["dumpsys_only"])), ["bbb0001", "bbb0003"],
+     "已配对的后代不在 dumpsys_only 里重复输出")
+t.eq(count(nest["dumpsys_only"]), nest["align_stats"]["view_unpaired"],
+     "dumpsys_only 节点数 == 未定位节点数")
+t.eq(len(screenshot.collect(nest, "all", "dumpsys")[0]), 3,
+     "每个 View 只画一个派生框（配对节点 1 个 + 未定位 2 个）")
+
 
 # ================================================================== 5. 剪枝
 

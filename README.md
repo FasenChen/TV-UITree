@@ -302,7 +302,7 @@ Android 16 的 ViewDebug 可能把外层名称写成 `DecorView{...}[MainSetting
 | R2 | 两侧各有唯一焦点节点，且类名条件满足 |
 | R3 | 已配对的父节点下，子节点保序映射只有唯一解 |
 
-无法唯一配对的 dumpsys 节点保留在全量 JSON 的 `dumpsys_only`，不猜它在 a11y 树中的位置。a11y 的 `bounds_screen` 和 dumpsys 的 `bounds_local` 是各自数据源的**读数**；`bounds_abs_unclipped`、`pred_visible_rect` 是**派生值**。后者受滚动偏移等限制，不能当作真实屏幕坐标。`dumpsys activity top` 也无法覆盖所有独立窗口，例如某些对话框和输入法界面；结果中的 `segment_match_note` 会提示窗口段匹配问题。
+无法唯一配对的 dumpsys 节点保留在全量 JSON 的 `dumpsys_only`，不猜它在 a11y 树中的位置。`dumpsys_only` 按 View 层次组成森林，每个未定位节点只出现一次；已配对的后代只在主树中出现，不在这里重复。a11y 的 `bounds_screen` 和 dumpsys 的 `bounds_local` 是各自数据源的**读数**；`bounds_abs_unclipped`、`pred_visible_rect` 是**派生值**。后者受滚动偏移等限制，不能当作真实屏幕坐标。`dumpsys activity top` 也无法覆盖所有独立窗口，例如某些对话框和输入法界面；结果中的 `segment_match_note` 会提示窗口段匹配问题。
 
 ## 代码结构与数据流
 

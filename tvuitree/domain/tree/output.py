@@ -128,9 +128,14 @@ def build_full_json(u2_roots: list, view_roots: list, u2_meta: dict, dev: dict,
         o["children"] = [uni_json(ch) for ch in n.children if keep_child(ch)]
         return o
 
+    # dumpsys_only 是「未定位节点」组成的森林：每个未定位节点恰好输出一次。
+    # 子节点只递归未定位的那些——已配对的后代在主树里，再列一次就是同一个 View
+    # 出现两遍；未定位的后代也不能再作为顶层项重复列出。
+    unpaired = {id(v) for v in st.view_unpaired}
+
     def view_only_json(n: Node) -> dict:
         o = view_fields(n)
-        o["children"] = [view_only_json(ch) for ch in n.children]
+        o["children"] = [view_only_json(ch) for ch in n.children if id(ch) in unpaired]
         return o
 
     uni = build_unified(u2_roots, view_roots, st, _scr) if show_dumpsys else \
@@ -200,7 +205,8 @@ def build_full_json(u2_roots: list, view_roots: list, u2_meta: dict, dev: dict,
                      "（坐标是相对父容器的布局坐标，不是屏幕坐标）。",
         "tree": [uni_json(n) for n in uni if keep_child(n)],
         "dumpsys_only": ([] if not show_dumpsys
-                         else [view_only_json(v) for v in st.view_unpaired]),
+                         else [view_only_json(v) for v in st.view_unpaired
+                               if v.parent is None or id(v.parent) not in unpaired]),
         "focus": [{
             "class": u.cls,
             "resource_id": u.res_id,
