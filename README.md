@@ -211,13 +211,20 @@ MCP 工具没有 `--from-json`、`--out` 或按键参数；每次调用都会重
 
 `get_focus_screenshot` 返回精简的文本 JSON 和可直接显示的 MCP `image/png` 内容。JSON 固定包含 `focus_found`（找到唯一 a11y 焦点）、`screenshot_captured`（取得 PNG）、`focus_marked`（在截图上成功画出唯一红框）、`image_path`（服务器本机保存的 PNG 绝对路径；未保存时为 `null`）和 `image_base64`（同一张 PNG 的纯 Base64 字符串；未取得截图时为 `null`）；连接、采集、绘制或保存失败时额外包含简短的 `error`。每次调用都在 Git 忽略的 `_temp/focus_screenshots/` 下保存独立文件。红框只使用 a11y 的 `bounds_screen` 读数，1080p 线宽为 6 像素，并随图片高度缩放，不用 dumpsys 派生坐标猜位置。没有唯一焦点时仍返回未标注的截图和路径；若保存失败但已取得 PNG，仍返回 MCP 图片及 `image_base64`。`image_path` 是 MCP 服务所在电脑的本地路径，其他电脑上的客户端可使用返回的 MCP 图片内容或 `image_base64`。
 
-每次调用 MCP 工具，服务都会向标准错误写一行耗时，工具返回内容不变：
+每次调用 MCP 工具，服务都会向标准错误写一段耗时，工具返回内容不变。首行是开始时间、工具名和总耗时，之后每个阶段一行，列出毫秒数和占总耗时的比例：
 
 ```text
-[tv-uitree] 2026-09-29T15:30:01.123 get_focus_screenshot total=1532.4ms connect=112.0ms capture_tree=903.6ms summarize=2.1ms screenshot=480.3ms mark=21.5ms encode=6.2ms save=6.7ms
+[tv-uitree] 16:08:16.975 get_focus_screenshot  total 7737.4 ms
+  connect         115.4 ms    1.5%
+  capture_tree   3486.3 ms   45.1%
+  summarize         0.6 ms    0.0%
+  screenshot     3878.8 ms   50.1%
+  mark            248.3 ms    3.2%
+  encode            5.5 ms    0.1%
+  save              2.4 ms    0.0%
 ```
 
-`total` 从进入工具函数算到函数返回，不含 MCP 库序列化结果和 stdio 传输的时间。阶段含义：`connect` 读取 `config.json` 并连接 ADB；`capture_tree` 读取设备属性、dumpsys、uiautomator2 dump 并配对；`summarize` 生成焦点、观察或可视摘要；`screenshot` 截屏；`mark` 画焦点红框；`encode` 生成 Base64；`save` 写 PNG 文件。没有执行的阶段不出现；某阶段抛出异常时，行尾追加 `failed=<阶段名>`。日志显示在哪里取决于宿主：在终端直接运行 `python main.py mcp` 时显示在该终端，其他宿主一般写进它的 MCP 服务日志。
+`total` 从进入工具函数算到函数返回，不含 MCP 库序列化结果和 stdio 传输的时间。阶段含义：`connect` 读取 `config.json` 并连接 ADB；`capture_tree` 读取设备属性、dumpsys、uiautomator2 dump 并配对；`summarize` 生成焦点、观察或可视摘要；`screenshot` 截屏；`mark` 画焦点红框；`encode` 生成 Base64；`save` 写 PNG 文件。没有执行的阶段不出现；某阶段抛出异常时，首行末尾追加 `failed at <阶段名>`。日志显示在哪里取决于宿主：在终端直接运行 `python main.py mcp` 时显示在该终端，其他宿主一般写进它的 MCP 服务日志。
 
 ## 用 MCP Inspector 网页调试
 
@@ -372,6 +379,6 @@ python main.py --help
 python main.py tree --prune-list
 ```
 
-`tests/selftest_tree.py` 覆盖解析、R0–R3 配对、剪枝、CLI、观察摘要、可视控件摘要和截图几何；不需要连接 TV。已有 `full.json` 时，可运行 `python main.py observe --from-json full.json --out observe.json` 检查离线观察。MCP 接入时，在客户端确认能列出六个工具，并检查 `get_focus_screenshot` 的 PNG 是否有红色焦点框。调用任一 MCP 工具后，服务的标准错误中应出现一行以 `[tv-uitree]` 开头的耗时记录。
+`tests/selftest_tree.py` 覆盖解析、R0–R3 配对、剪枝、CLI、观察摘要、可视控件摘要和截图几何；不需要连接 TV。已有 `full.json` 时，可运行 `python main.py observe --from-json full.json --out observe.json` 检查离线观察。MCP 接入时，在客户端确认能列出六个工具，并检查 `get_focus_screenshot` 的 PNG 是否有红色焦点框。调用任一 MCP 工具后，服务的标准错误中应出现一段以 `[tv-uitree]` 开头的耗时记录。
 
 真实设备验收时，先在 TV 上打开一个有焦点的页面，再采集 `observe`；需要验证按键后的焦点变化时，发送一个遥控器按键并重新采集。`adb devices -l` 只说明 ADB 连接状态：若报 `device offline`，先恢复 ADB 连接；若报“dumpsys 里没有可用的 ACTIVITY 段”，当前画面没有可用的补充树，可明确使用 `--no-dumpsys` 只读 a11y。若 uiautomator2 同时报告 `dump empty`，应切换到有无障碍节点的页面后重试。

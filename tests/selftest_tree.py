@@ -1183,18 +1183,22 @@ def _without_capture_time(value: dict) -> dict:
 
 
 def _timing_calls() -> list:
-    """取出并清空本节的耗时日志，返回 (工具名, 阶段名列表, failed) 列表。"""
+    """取出并清空本节的耗时日志，返回 (工具名, 阶段名列表, failed) 列表。
+
+    每次调用一段：首行 `[tv-uitree] 时间 工具名  total … ms[  failed at 阶段]`，
+    其后每个阶段缩进一行。
+    """
     lines = timing.LOG_STREAM.getvalue().splitlines()
     timing.LOG_STREAM.seek(0)
     timing.LOG_STREAM.truncate(0)
     calls = []
     for line in lines:
-        parts = line.split(" ")
-        fields = parts[4:]
-        stages = [part.split("=", 1)[0] for part in fields if part.endswith("ms")]
-        failed = next((part.split("=", 1)[1] for part in fields
-                       if part.startswith("failed=")), None)
-        calls.append((parts[2], stages, failed))
+        if line.startswith("[tv-uitree] "):
+            parts = line.split()
+            failed = parts[-1] if "failed at" in line else None
+            calls.append((parts[2], [], failed))
+        elif line.startswith("  ") and calls:
+            calls[-1][1].append(line.split()[0])
     return calls
 
 
@@ -1515,9 +1519,10 @@ try:
         with timer.stage("capture_tree"):
             pass
     line = timing.LOG_STREAM.getvalue()
-    t.ok(re.fullmatch(r"\[tv-uitree\] \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3} demo_tool "
-                      r"total=2000\.0ms connect=500\.0ms capture_tree=250\.0ms\n", line),
-         "耗时日志一行给出起始时间、工具名、总耗时和各阶段毫秒数", repr(line))
+    t.ok(re.fullmatch(r"\[tv-uitree\] \d\d:\d\d:\d\d\.\d{3} demo_tool  total 2000\.0 ms\n"
+                      r"  connect         500\.0 ms   25\.0%\n"
+                      r"  capture_tree    250\.0 ms   12\.5%\n", line),
+         "耗时日志首行给出时间、工具名和总耗时，每个阶段一行，毫秒和占比右对齐", repr(line))
 
     _ticks = iter([0.0, 0.0, 0.1, 0.3])
     timing.LOG_STREAM = io.StringIO()
@@ -1530,8 +1535,30 @@ try:
         escaped = True
     line = timing.LOG_STREAM.getvalue()
     t.ok(escaped, "阶段异常不被计时器吞掉")
-    t.ok(line.endswith(" demo_tool total=300.0ms screenshot=100.0ms failed=screenshot\n"),
-         "异常穿出工具时仍写日志，并标出失败阶段", repr(line))
+    t.ok(line.endswith(" demo_tool  total 300.0 ms  failed at screenshot\n"
+                       "  screenshot      100.0 ms   33.3%\n"),
+         "异常穿出工具时仍写日志，并在首行标出失败阶段", repr(line))
+
+    _ticks = iter([0.0, 0.0])
+    timing.perf_counter = lambda: next(_ticks)
+    timing.LOG_STREAM = io.StringIO()
+    with timing.tool_timing("demo_tool"):
+        pass
+    line = timing.LOG_STREAM.getvalue()
+    t.ok(line.endswith(" demo_tool  total 0.0 ms\n"),
+         "没有阶段且总耗时为 0 时只写首行，不做除零", repr(line))
+
+    _ticks = iter([0.0, 0.0, 0.001, 0.002, 0.003, 0.004])
+    timing.perf_counter = lambda: next(_ticks)
+    timing.LOG_STREAM = io.StringIO()
+    with timing.tool_timing("demo_tool") as timer:
+        with timer.stage("a"):
+            pass
+        with timer.stage("a_much_longer_stage"):
+            pass
+    stage_lines = timing.LOG_STREAM.getvalue().splitlines()[1:]
+    t.ok(len(stage_lines) == 2 and len({stage.index(" ms") for stage in stage_lines}) == 1,
+         "阶段名超过 12 字符时各行仍按同一列对齐", repr(stage_lines))
 
     class _BrokenStream:
         def write(self, text):
@@ -1556,7 +1583,7 @@ try:
         with timing.tool_timing("demo_tool"):
             pass
     t.eq(out.getvalue(), "", "耗时日志不写 stdout，stdio 协议不受干扰")
-    t.ok(" demo_tool total=" in err.getvalue(), "耗时日志默认写 stderr", repr(err.getvalue()))
+    t.ok(" demo_tool  total " in err.getvalue(), "耗时日志默认写 stderr", repr(err.getvalue()))
 finally:
     timing.perf_counter = _original_perf_counter
     timing.LOG_STREAM = _original_timing_stream
