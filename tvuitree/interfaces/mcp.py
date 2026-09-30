@@ -19,6 +19,7 @@ from tvuitree.application.observation import collect_full_json, collect_observat
 from tvuitree.application.screenshot import render_focus_png
 from tvuitree.domain.observation import error_observation
 from tvuitree.infrastructure.image import capture
+from tvuitree.interfaces.timing import tool_timing
 
 try:
     from mcp.server.fastmcp import FastMCP, Image
@@ -166,21 +167,25 @@ def get_current_focus(
     adb: Optional[str] = None,
 ) -> dict:
     """返回精简的当前焦点节点信息，不返回祖先、同级节点或子节点。"""
-    try:
-        device, target = _connect(
-            TV_IP_Address=TV_IP_Address, port=port, adb=adb,
-            no_connect=False,
-        )
-        if device is None:
-            return _focus_info(error_observation(f"无法连接 TV：{target}")["focus"])
-        full = collect_full_json(
-            adb=device, serial=device.serial, quiet=True,
-            use_dumpsys=False,
-        )
-        focus = collect_observation(full_json=full)["focus"]
-        return _focus_info(focus, full)
-    except Exception as exc:
-        return _focus_info(error_observation(exc)["focus"])
+    with tool_timing("get_current_focus") as timer:
+        try:
+            with timer.stage("connect"):
+                device, target = _connect(
+                    TV_IP_Address=TV_IP_Address, port=port, adb=adb,
+                    no_connect=False,
+                )
+            if device is None:
+                return _focus_info(error_observation(f"无法连接 TV：{target}")["focus"])
+            with timer.stage("capture_tree"):
+                full = collect_full_json(
+                    adb=device, serial=device.serial, quiet=True,
+                    use_dumpsys=False,
+                )
+            with timer.stage("summarize"):
+                focus = collect_observation(full_json=full)["focus"]
+                return _focus_info(focus, full)
+        except Exception as exc:
+            return _focus_info(error_observation(exc)["focus"])
 
 
 @mcp.tool(structured_output=False)
@@ -190,64 +195,72 @@ def get_focus_screenshot(
     adb: Optional[str] = None,
 ) -> list:
     """返回截图结果和 PNG；唯一 a11y 焦点用加粗红框标出。"""
-    status = {
-        "focus_found": False,
-        "screenshot_captured": False,
-        "focus_marked": False,
-        "image_path": None,
-        "image_base64": None,
-    }
-    try:
-        device, target = _connect(
-            TV_IP_Address=TV_IP_Address, port=port, adb=adb,
-            no_connect=False,
-        )
-    except Exception as exc:
-        status["error"] = f"连接 TV 失败：{exc}"
-        return [status]
-    if device is None:
-        status["error"] = f"无法连接 TV：{target}"
-        return [status]
-
-    errors = []
-    full = None
-    try:
-        full = collect_full_json(
-            adb=device, serial=device.serial, quiet=True,
-            use_dumpsys=False,
-        )
-        observation = collect_observation(full_json=full)
-        status["focus_found"] = observation["focus"]["status"] == "found"
-    except Exception as exc:
-        errors.append(f"焦点采集失败：{exc}")
-
-    try:
-        png = capture(device)
-    except Exception as exc:
-        errors.append(f"截图失败：{exc}")
-        status["error"] = "；".join(errors)
-        return [status]
-
-    status["screenshot_captured"] = True
-    output_png = png
-    if status["focus_found"] and full is not None:
+    with tool_timing("get_focus_screenshot") as timer:
+        status = {
+            "focus_found": False,
+            "screenshot_captured": False,
+            "focus_marked": False,
+            "image_path": None,
+            "image_base64": None,
+        }
         try:
-            output_png, result = render_focus_png(full, png)
-            status["focus_marked"] = result["drawn"] == 1 and len(result["boxes"]) == 1
-            if not status["focus_marked"]:
-                errors.append("焦点框未能画到截图上")
+            with timer.stage("connect"):
+                device, target = _connect(
+                    TV_IP_Address=TV_IP_Address, port=port, adb=adb,
+                    no_connect=False,
+                )
         except Exception as exc:
-            errors.append(f"焦点标注失败：{exc}")
-            output_png = png
+            status["error"] = f"连接 TV 失败：{exc}"
+            return [status]
+        if device is None:
+            status["error"] = f"无法连接 TV：{target}"
+            return [status]
 
-    status["image_base64"] = base64.b64encode(output_png).decode("ascii")
-    try:
-        status["image_path"] = _save_focus_screenshot(output_png)
-    except Exception as exc:
-        errors.append(f"截图保存失败：{exc}")
-    if errors:
-        status["error"] = "；".join(errors)
-    return [status, Image(data=output_png, format="png")]
+        errors = []
+        full = None
+        try:
+            with timer.stage("capture_tree"):
+                full = collect_full_json(
+                    adb=device, serial=device.serial, quiet=True,
+                    use_dumpsys=False,
+                )
+            with timer.stage("summarize"):
+                observation = collect_observation(full_json=full)
+                status["focus_found"] = observation["focus"]["status"] == "found"
+        except Exception as exc:
+            errors.append(f"焦点采集失败：{exc}")
+
+        try:
+            with timer.stage("screenshot"):
+                png = capture(device)
+        except Exception as exc:
+            errors.append(f"截图失败：{exc}")
+            status["error"] = "；".join(errors)
+            return [status]
+
+        status["screenshot_captured"] = True
+        output_png = png
+        if status["focus_found"] and full is not None:
+            try:
+                with timer.stage("mark"):
+                    output_png, result = render_focus_png(full, png)
+                status["focus_marked"] = result["drawn"] == 1 and len(result["boxes"]) == 1
+                if not status["focus_marked"]:
+                    errors.append("焦点框未能画到截图上")
+            except Exception as exc:
+                errors.append(f"焦点标注失败：{exc}")
+                output_png = png
+
+        with timer.stage("encode"):
+            status["image_base64"] = base64.b64encode(output_png).decode("ascii")
+        try:
+            with timer.stage("save"):
+                status["image_path"] = _save_focus_screenshot(output_png)
+        except Exception as exc:
+            errors.append(f"截图保存失败：{exc}")
+        if errors:
+            status["error"] = "；".join(errors)
+        return [status, Image(data=output_png, format="png")]
 
 
 
@@ -261,19 +274,25 @@ def observe_tv(
     max_nodes: int = 80,
 ) -> dict:
     """读取当前 TV 焦点、精简页面节点和 R0–R3 证据。"""
-    try:
-        device, target = _connect(
-            TV_IP_Address=TV_IP_Address, port=port, adb=adb,
-            no_connect=no_connect,
-        )
-        if device is None:
-            return error_observation(f"无法连接 TV：{target}")
-        return collect_observation(
-            adb=device, serial=device.serial, quiet=True,
-            use_dumpsys=not no_dumpsys, max_nodes=max_nodes,
-        )
-    except Exception as exc:  # MCP 工具返回结构化错误，避免宿主丢失上下文
-        return error_observation(exc)
+    with tool_timing("observe_tv") as timer:
+        try:
+            with timer.stage("connect"):
+                device, target = _connect(
+                    TV_IP_Address=TV_IP_Address, port=port, adb=adb,
+                    no_connect=no_connect,
+                )
+            if device is None:
+                return error_observation(f"无法连接 TV：{target}")
+            # 拆成采集和摘要两步，分别计时；结果与 collect_observation(adb=...) 相同
+            with timer.stage("capture_tree"):
+                full = collect_full_json(
+                    adb=device, serial=device.serial, quiet=True,
+                    use_dumpsys=not no_dumpsys,
+                )
+            with timer.stage("summarize"):
+                return collect_observation(full_json=full, max_nodes=max_nodes)
+        except Exception as exc:  # MCP 工具返回结构化错误，避免宿主丢失上下文
+            return error_observation(exc)
 
 
 @mcp.tool()
@@ -285,21 +304,24 @@ def get_full_tree(
     no_dumpsys: bool = False,
 ) -> dict:
     """读取当前 TV 的完整控件树；需要详细诊断时使用。"""
-    try:
-        device, _target = _connect(
-            TV_IP_Address=TV_IP_Address, port=port, adb=adb,
-            no_connect=no_connect,
-        )
-        if device is None:
-            return {"error": "无法连接 TV", "mode": "full"}
-        full = collect_full_json(
-            adb=device, serial=device.serial, quiet=True,
-            use_dumpsys=not no_dumpsys,
-        )
-        full.pop("_parse_anomalies", None)
-        return full
-    except Exception as exc:  # MCP 工具返回可读错误，不向宿主泄漏 traceback
-        return {"error": str(exc), "error_type": type(exc).__name__, "mode": "full"}
+    with tool_timing("get_full_tree") as timer:
+        try:
+            with timer.stage("connect"):
+                device, _target = _connect(
+                    TV_IP_Address=TV_IP_Address, port=port, adb=adb,
+                    no_connect=no_connect,
+                )
+            if device is None:
+                return {"error": "无法连接 TV", "mode": "full"}
+            with timer.stage("capture_tree"):
+                full = collect_full_json(
+                    adb=device, serial=device.serial, quiet=True,
+                    use_dumpsys=not no_dumpsys,
+                )
+            full.pop("_parse_anomalies", None)
+            return full
+        except Exception as exc:  # MCP 工具返回可读错误，不向宿主泄漏 traceback
+            return {"error": str(exc), "error_type": type(exc).__name__, "mode": "full"}
 
 
 @mcp.tool()
@@ -310,15 +332,22 @@ def get_visible(
     no_connect: bool = False,
 ) -> dict:
     """读取当前屏幕内的控件摘要和焦点，排除屏外节点与空布局。"""
-    try:
-        device, _target = _connect(
-            TV_IP_Address=TV_IP_Address, port=port, adb=adb,
-            no_connect=no_connect,
-        )
-        if device is None:
-            return {"error": "无法连接 TV", "mode": "visible"}
-        return collect_visible(
-            adb=device, serial=device.serial, quiet=True,
-        )
-    except Exception as exc:
-        return {"error": str(exc), "error_type": type(exc).__name__, "mode": "visible"}
+    with tool_timing("get_visible") as timer:
+        try:
+            with timer.stage("connect"):
+                device, _target = _connect(
+                    TV_IP_Address=TV_IP_Address, port=port, adb=adb,
+                    no_connect=no_connect,
+                )
+            if device is None:
+                return {"error": "无法连接 TV", "mode": "visible"}
+            # 与 collect_visible(adb=...) 相同：只采 a11y，再做可视筛选
+            with timer.stage("capture_tree"):
+                full = collect_full_json(
+                    adb=device, serial=device.serial, quiet=True,
+                    use_dumpsys=False,
+                )
+            with timer.stage("summarize"):
+                return collect_visible(full_json=full)
+        except Exception as exc:
+            return {"error": str(exc), "error_type": type(exc).__name__, "mode": "visible"}

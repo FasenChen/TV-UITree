@@ -44,6 +44,7 @@ import asyncio
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -56,7 +57,7 @@ from tvuitree.domain import component, observation as domain_observation, screen
 from tvuitree.domain.tree import models, parsing, matching, capture, output as tree_output, pruning
 from tvuitree.application import input as remote_input, observation as application_observation
 from tvuitree.infrastructure import adb, image
-from tvuitree.interfaces import (cli, connection, terminal, observe as observe_interface,
+from tvuitree.interfaces import (cli, connection, terminal, timing, observe as observe_interface,
                                 tree as tree_interface, visible as visible_interface)
 
 
@@ -1158,6 +1159,7 @@ _original_focus_dir = mcp_interface.FOCUS_SCREENSHOT_DIR
 _original_save_focus = mcp_interface._save_focus_screenshot
 _original_collect_observation = mcp_interface.collect_observation
 _original_render_focus_png = mcp_interface.render_focus_png
+_original_log_stream = timing.LOG_STREAM
 _fake_device = SimpleNamespace(serial="fixture")
 
 
@@ -1179,7 +1181,24 @@ def _without_capture_time(value: dict) -> dict:
     return result
 
 
+def _timing_calls() -> list:
+    """取出并清空本节的耗时日志，返回 (工具名, 阶段名列表, failed) 列表。"""
+    lines = timing.LOG_STREAM.getvalue().splitlines()
+    timing.LOG_STREAM.seek(0)
+    timing.LOG_STREAM.truncate(0)
+    calls = []
+    for line in lines:
+        parts = line.split(" ")
+        fields = parts[4:]
+        stages = [part.split("=", 1)[0] for part in fields if part.endswith("ms")]
+        failed = next((part.split("=", 1)[1] for part in fields
+                       if part.startswith("failed=")), None)
+        calls.append((parts[2], stages, failed))
+    return calls
+
+
 try:
+    timing.LOG_STREAM = io.StringIO()
     snapshot_adapter.snapshot = _fixture_snapshot
     observe_interface.connect_for_cli = lambda args: _fake_device
     tree_interface.connect_for_cli = lambda args: _fake_device
@@ -1194,6 +1213,8 @@ try:
     t.eq(cli_observe_rc, 0, "CLI 实时观察退出码")
     t.eq(_without_capture_time(cli_observation), _without_capture_time(mcp_observation),
          "CLI 与 MCP 对同一快照返回相同观察 JSON")
+    t.eq(_timing_calls(), [("observe_tv", ["connect", "capture_tree", "summarize"], None)],
+         "observe_tv 每次调用写一行耗时，分连接、采集、摘要")
 
     mcp_focus = mcp_interface.get_current_focus()
     t.eq(mcp_focus["status"], cli_observation["focus"]["status"],
@@ -1203,6 +1224,9 @@ try:
     t.eq(set(mcp_focus), {"status", "node"},
          "独立 MCP 焦点工具不返回上下文或重复候选")
     t.eq(mcp_focus["status"], "found", "独立焦点工具报告唯一焦点")
+    t.eq(_timing_calls(),
+         [("get_current_focus", ["connect", "capture_tree", "summarize"], None)],
+         "get_current_focus 写一行耗时")
     mcp_schemas = {
         tool.name: tool.inputSchema for tool in asyncio.run(mcp_interface.mcp.list_tools())
     }
@@ -1218,6 +1242,10 @@ try:
         shot_content = asyncio.run(mcp_interface.mcp.call_tool("get_focus_screenshot", {}))
         t.eq([item.type for item in shot_content], ["text", "image"],
              "MCP 截图工具返回精简状态和原生 image 内容")
+        t.eq(_timing_calls(), [("get_focus_screenshot",
+                                ["connect", "capture_tree", "summarize", "screenshot",
+                                 "mark", "encode", "save"], None)],
+             "截图工具按连接、采集、摘要、截图、标注、编码、保存分段计时")
         shot_meta = json.loads(shot_content[0].text)
         expected_keys = {"focus_found", "screenshot_captured", "focus_marked",
                          "image_path", "image_base64"}
@@ -1250,6 +1278,9 @@ try:
                 lambda **kwargs: {"focus": {"status": focus_status}}
             )
             unmarked = mcp_interface.get_focus_screenshot()
+            t.eq(_timing_calls()[-1][1],
+                 ["connect", "capture_tree", "summarize", "screenshot", "encode", "save"],
+                 f"{focus_status} 时不标注，也不记 mark 阶段")
             t.eq([unmarked[0][key] for key in
                   ("focus_found", "screenshot_captured", "focus_marked")],
                  [False, True, False], f"{focus_status} 时截图仍成功但不标注")
@@ -1262,6 +1293,7 @@ try:
         def _capture_failure(device):
             raise ValueError("fixture screenshot failed")
 
+        _timing_calls()
         mcp_interface.capture = _capture_failure
         capture_failure = mcp_interface.get_focus_screenshot()[0]
         t.eq([capture_failure[key] for key in
@@ -1269,6 +1301,10 @@ try:
                "image_base64")],
              [True, False, False, None, None], "截图失败时状态字段仍齐全")
         t.ok("截图失败" in capture_failure["error"], "截图失败返回简短错误")
+        t.eq(_timing_calls(), [("get_focus_screenshot",
+                                ["connect", "capture_tree", "summarize", "screenshot"],
+                                "screenshot")],
+             "截图失败时日志停在 screenshot 并标出 failed")
         mcp_interface.capture = lambda device: png
 
         def _save_failure(data):
@@ -1301,6 +1337,7 @@ try:
         t.ok("焦点框未能画到截图上" in mark_failure["error"], "画框失败给出错误")
         mcp_interface.render_focus_png = _original_render_focus_png
 
+        _timing_calls()
         mcp_interface._connect = lambda **kwargs: (None, "fixture")
         connection_failure = mcp_interface.get_focus_screenshot()[0]
         t.eq([connection_failure[key] for key in
@@ -1308,6 +1345,8 @@ try:
                "image_base64")],
              [False, False, False, None, None], "连接失败时返回完整的失败状态")
         t.ok("error" in connection_failure, "连接失败给出错误")
+        t.eq(_timing_calls(), [("get_focus_screenshot", ["connect"], None)],
+             "连接失败提前返回时仍写一行耗时")
         mcp_interface._connect = lambda **kwargs: (_fake_device, "fixture")
 
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -1318,6 +1357,8 @@ try:
     t.eq(cli_tree_rc, 0, "CLI 完整树退出码")
     t.eq(_without_capture_time(cli_tree), _without_capture_time(mcp_tree),
          "CLI 与 MCP 对同一快照返回相同完整树 JSON")
+    t.eq(_timing_calls(), [("get_full_tree", ["connect", "capture_tree"], None)],
+         "get_full_tree 写一行耗时")
 
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         cli_visible_rc = cli.main(["visible", "--out", os.path.join(TD, "shared_visible.json")])
@@ -1327,6 +1368,9 @@ try:
     t.eq(cli_visible_rc, 0, "CLI 可视树退出码")
     t.eq(_without_capture_time(cli_visible), _without_capture_time(mcp_visible),
          "CLI 与 MCP 对同一快照返回相同可视树 JSON")
+    t.eq(_timing_calls(),
+         [("get_visible", ["connect", "capture_tree", "summarize"], None)],
+         "get_visible 写一行耗时")
     t.eq(set(mcp_visible), {"schema_version", "mode", "captured_at", "screen",
                             "focus", "page"}, "可视结果保留观察所需的焦点和页面结构")
     t.eq(mcp_visible["schema_version"], "tv-visible/v1", "可视摘要使用独立版本")
@@ -1412,6 +1456,7 @@ try:
     def _failed_snapshot(*args, **kwargs):
         raise adb.AdbError("fixture capture failed")
 
+    _timing_calls()
     snapshot_adapter.snapshot = _failed_snapshot
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         failure_rc = cli.main(["observe"])
@@ -1428,6 +1473,13 @@ try:
          [False, True, False], "焦点采集失败时仍返回未标注截图")
     t.ok("焦点采集失败" in failed_focus_shot["error"],
          "焦点采集失败时返回可读错误")
+    t.eq(_timing_calls(), [
+        ("observe_tv", ["connect", "capture_tree"], "capture_tree"),
+        ("get_current_focus", ["connect", "capture_tree"], "capture_tree"),
+        ("get_visible", ["connect", "capture_tree"], "capture_tree"),
+        ("get_focus_screenshot", ["connect", "capture_tree", "screenshot", "encode", "save"],
+         "capture_tree"),
+    ], "采集失败被工具吞掉时日志仍标出 failed=capture_tree")
 finally:
     snapshot_adapter.snapshot = _original_snapshot
     observe_interface.connect_for_cli = _original_observe_connect
@@ -1439,6 +1491,70 @@ finally:
     mcp_interface._save_focus_screenshot = _original_save_focus
     mcp_interface.collect_observation = _original_collect_observation
     mcp_interface.render_focus_png = _original_render_focus_png
+    timing.LOG_STREAM = _original_log_stream
+
+# ================================================================== 9. MCP 工具耗时日志
+
+t.group("9. MCP 工具耗时日志")
+
+_original_perf_counter = timing.perf_counter
+_original_timing_stream = timing.LOG_STREAM
+try:
+    # 调用顺序：计时器创建、connect 起止、capture_tree 起止、总计结束
+    _ticks = iter([10.0, 10.5, 11.0, 11.0, 11.25, 12.0])
+    timing.perf_counter = lambda: next(_ticks)
+    timing.LOG_STREAM = io.StringIO()
+    with timing.tool_timing("demo_tool") as timer:
+        with timer.stage("connect"):
+            pass
+        with timer.stage("capture_tree"):
+            pass
+    line = timing.LOG_STREAM.getvalue()
+    t.ok(re.fullmatch(r"\[tv-uitree\] \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3} demo_tool "
+                      r"total=2000\.0ms connect=500\.0ms capture_tree=250\.0ms\n", line),
+         "耗时日志一行给出起始时间、工具名、总耗时和各阶段毫秒数", repr(line))
+
+    _ticks = iter([0.0, 0.0, 0.1, 0.3])
+    timing.LOG_STREAM = io.StringIO()
+    escaped = False
+    try:
+        with timing.tool_timing("demo_tool") as timer:
+            with timer.stage("screenshot"):
+                raise ValueError("fixture")
+    except ValueError:
+        escaped = True
+    line = timing.LOG_STREAM.getvalue()
+    t.ok(escaped, "阶段异常不被计时器吞掉")
+    t.ok(line.endswith(" demo_tool total=300.0ms screenshot=100.0ms failed=screenshot\n"),
+         "异常穿出工具时仍写日志，并标出失败阶段", repr(line))
+
+    class _BrokenStream:
+        def write(self, text):
+            raise OSError("fixture stderr closed")
+
+        def flush(self):
+            pass
+
+    timing.perf_counter = _original_perf_counter
+    timing.LOG_STREAM = _BrokenStream()
+    try:
+        with timing.tool_timing("demo_tool"):
+            pass
+        survived = True
+    except Exception:
+        survived = False
+    t.ok(survived, "stderr 写入失败不影响工具结果")
+
+    timing.LOG_STREAM = None
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        with timing.tool_timing("demo_tool"):
+            pass
+    t.eq(out.getvalue(), "", "耗时日志不写 stdout，stdio 协议不受干扰")
+    t.ok(" demo_tool total=" in err.getvalue(), "耗时日志默认写 stderr", repr(err.getvalue()))
+finally:
+    timing.perf_counter = _original_perf_counter
+    timing.LOG_STREAM = _original_timing_stream
 
 # ================================================================== 收尾
 
