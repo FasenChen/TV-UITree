@@ -40,6 +40,7 @@ selftest_tree.py — 离线自检：不连设备、不联网、不需要 pytest
 from __future__ import annotations
 
 import contextlib
+import importlib.util
 import asyncio
 import io
 import json
@@ -1555,6 +1556,281 @@ try:
 finally:
     timing.perf_counter = _original_perf_counter
     timing.LOG_STREAM = _original_timing_stream
+
+# ================================================================== 10. 截图耗时压测脚本
+t.group("10. 截图耗时压测脚本")
+
+_bench_spec = importlib.util.spec_from_file_location(
+    "bench_screencap", os.path.join(HERE, "scripts", "bench_screencap.py"))
+bench = importlib.util.module_from_spec(_bench_spec)
+sys.modules["bench_screencap"] = bench   # dataclass 需要按模块名找回命名空间
+_bench_spec.loader.exec_module(bench)
+
+_BENCH_PNG = b"\x89PNG\r\n\x1a\n" + b"x" * 8   # 16 字节，能通过 image.capture 的 PNG 头校验
+
+
+class _BenchDevice:
+    """假设备：exec_out 依次吐出预置结果；异常（含 KeyboardInterrupt）就地抛出。"""
+
+    def __init__(self, serial: str, outcomes=(), connected: bool = True,
+                 state: str = "device", connect_error=None) -> None:
+        self.serial = serial
+        self._outcomes = iter(outcomes)
+        self._connected = connected
+        self._state = state
+        self._connect_error = connect_error
+        self.auto_connect = True
+
+    def connect(self, quiet: bool = False) -> bool:
+        if self._connect_error is not None:
+            raise self._connect_error
+        return self._connected
+
+    def shell_raw(self, command: str, timeout: float = 30.0) -> tuple:
+        if self._state == "device":
+            return 0, "ok\n", ""
+        return 1, "", f"error: device {self._state}\n"
+
+    def exec_out(self, args: list, timeout: float = 60.0) -> bytes:
+        item = next(self._outcomes)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+
+def _bench_clock(*values: float):
+    it = iter(values)
+    return lambda: next(it)
+
+
+t.eq(bench.device_target("192.0.2.10", 5555), "192.0.2.10:5555", "只写 IP 时补默认端口")
+t.eq(bench.device_target("192.0.2.10:5556", 5555), "192.0.2.10:5556",
+     "已带端口的地址原样使用，不重复拼端口")
+t.eq(bench.device_target(" 192.0.2.10 ", 5555), "192.0.2.10:5555", "IP 两端空白被去掉")
+try:
+    bench.device_target("  ", 5555)
+    _empty_rejected = False
+except ValueError:
+    _empty_rejected = True
+t.ok(_empty_rejected, "空 IP 报 ValueError")
+
+t.eq(bench.positive_int("3"), 3, "正整数次数原样接受")
+for _bad in ("0", "-1", "abc"):
+    try:
+        bench.positive_int(_bad)
+        _rejected = False
+    except bench.argparse.ArgumentTypeError:
+        _rejected = True
+    t.ok(_rejected, f"次数 {_bad!r} 被拒绝")
+
+t.eq(bench.percentile([1.0, 2.0, 3.0, 4.0], 50), 2.0, "p50 取最近秩，不插值")
+t.eq(bench.percentile([1.0, 2.0, 3.0, 4.0], 99), 4.0, "p99 落在最大样本")
+t.eq(bench.percentile([7.0], 90), 7.0, "单个样本时各分位都是它本身")
+t.eq(bench.summarize([]), None, "没有成功样本时不统计，不除零")
+t.eq(bench.summarize([30.0, 10.0, 20.0]),
+     {"min": 10.0, "mean": 20.0, "p50": 20.0, "p90": 30.0, "p99": 30.0, "max": 30.0},
+     "汇总统计不依赖输入顺序")
+
+# 成功 / adb 掉线 / 非 PNG / 成功：失败记下原因并继续，统计只用成功样本。
+# clock 只在成功轮次读两次（开始、结束），失败轮次只读开始那一次。
+_bench_out = io.StringIO()
+_bench_result = bench.run_bench(
+    _BenchDevice("192.0.2.10:5555",
+                 [_BENCH_PNG, adb.AdbError("device offline"), b"not png", _BENCH_PNG]),
+    4, clock=_bench_clock(0.0, 0.25, 1.0, 2.0, 3.0, 3.5), out=_bench_out)
+t.eq(_bench_result.target, "192.0.2.10:5555", "结果记下设备地址")
+t.eq(_bench_result.durations_ms, [250.0, 500.0], "只记成功那几次的耗时（毫秒）")
+t.eq(_bench_result.sizes, [16, 16], "记下每次 PNG 字节数")
+t.eq([index for index, _ in _bench_result.failures], [2, 3], "失败轮次按序记录，不中止压测")
+t.eq(_bench_result.failures[0][1], "device offline", "失败原因保留 adb 报错原文")
+t.ok(not _bench_result.interrupted, "正常跑完不标中断")
+_bench_lines = _bench_out.getvalue().splitlines()
+t.eq(_bench_lines[0], "[1/4] 250.0ms 16B", "每轮打印耗时和大小")
+t.eq(_bench_lines[1], "[2/4] FAIL device offline", "失败轮次打印 FAIL 和原因")
+t.eq(len(_bench_lines), 4, "每轮恰好一行进度")
+t.eq(_bench_result.rounds, _bench_lines, "逐次记录与打印的进度行一致，供 txt 报告使用")
+
+_bench_report = bench.format_report(_bench_result)
+t.ok("计划 4 次，执行 4 次，成功 2，失败 2" in _bench_report, "报告写明成功与失败次数", _bench_report)
+t.ok("min=250.0" in _bench_report and "p50=250.0" in _bench_report
+     and "mean=375.0" in _bench_report and "max=500.0" in _bench_report,
+     "报告给出分位统计", _bench_report)
+t.ok("PNG 平均 16B" in _bench_report, "报告给出平均 PNG 大小", _bench_report)
+
+_all_fail = bench.run_bench(
+    _BenchDevice("192.0.2.10:5555", [adb.AdbError("device offline")] * 2),
+    2, clock=_bench_clock(0.0, 1.0), out=io.StringIO())
+t.ok("没有成功的截图，无法统计耗时" in bench.format_report(_all_fail),
+     "全部失败时报告不统计、不崩溃")
+
+# Ctrl+C：停在当前轮，保留已完成的样本
+_interrupted = bench.run_bench(
+    _BenchDevice("192.0.2.10:5555", [_BENCH_PNG, KeyboardInterrupt()]),
+    5, clock=_bench_clock(0.0, 0.5, 1.0), out=io.StringIO())
+t.ok(_interrupted.interrupted, "Ctrl+C 标记为中断")
+t.eq(_interrupted.durations_ms, [500.0], "中断前的样本保留")
+_interrupted_report = bench.format_report(_interrupted)
+t.ok("执行 1 次" in _interrupted_report and "已中断" in _interrupted_report,
+     "中断报告只统计已执行轮次", _interrupted_report)
+
+def _bench_main(argv, devices, **kwargs):
+    """用假设备跑 main，返回 (退出码, stdout, stderr, 实际创建过的地址)。"""
+    created = []
+
+    def _make(target):
+        created.append(target)
+        return devices[target]
+
+    kwargs.setdefault("report_root", Path(TD) / "bench_default")
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            code = bench.main(argv, make_device=_make, **kwargs)
+        except SystemExit as exit_:
+            code = exit_.code
+    return code, out.getvalue(), err.getvalue(), created
+
+
+_code, _, _, _ = _bench_main(["192.0.2.10", "--count", "0"], {})
+t.eq(_code, 2, "次数为 0 是用法错误，退出码 2")
+_code, _, _, _ = _bench_main(["192.0.2.10", "-n", "1", "--port", "70000"], {})
+t.eq(_code, 2, "端口越界是用法错误，退出码 2")
+
+_code, _out, _, _ = _bench_main(
+    ["192.0.2.10", "-n", "2"],
+    {"192.0.2.10:5555": _BenchDevice("192.0.2.10:5555", [_BENCH_PNG, _BENCH_PNG])})
+t.eq(_code, 0, "全部截图成功退出码 0")
+t.ok("== 192.0.2.10:5555 ==" in _out and "成功 2，失败 0" in _out, "stdout 输出报告", _out)
+
+_code, _, _, _ = _bench_main(
+    ["192.0.2.10", "-n", "2"],
+    {"192.0.2.10:5555": _BenchDevice("192.0.2.10:5555",
+                                     [_BENCH_PNG, adb.AdbError("device offline")])})
+t.eq(_code, 1, "有截图失败退出码 1")
+
+_code, _out, _err, _created = _bench_main(
+    ["192.0.2.99", "192.0.2.10:5556", "-n", "1"],
+    {"192.0.2.99:5555": _BenchDevice("192.0.2.99:5555", connected=False),
+     "192.0.2.10:5556": _BenchDevice("192.0.2.10:5556", [_BENCH_PNG])})
+t.eq(_code, 2, "有设备连不上退出码 2")
+t.ok("无法连接 192.0.2.99:5555" in _err, "连不上的设备在 stderr 说明", _err)
+t.ok("== 192.0.2.10:5556 ==" in _out, "一台连不上不影响其余设备压测", _out)
+t.eq(_created, ["192.0.2.99:5555", "192.0.2.10:5556"], "带端口的地址原样传给设备")
+
+_code, _out, _, _created = _bench_main(
+    ["192.0.2.10", "192.0.2.11", "-n", "3"],
+    {"192.0.2.10:5555": _BenchDevice("192.0.2.10:5555", [_BENCH_PNG, KeyboardInterrupt()]),
+     "192.0.2.11:5555": _BenchDevice("192.0.2.11:5555", [_BENCH_PNG] * 3)})
+t.eq(_code, 130, "Ctrl+C 退出码 130")
+t.ok("已中断" in _out, "中断时仍打印已完成部分的报告", _out)
+t.eq(_created, ["192.0.2.10:5555"], "中断后不再压测后续设备")
+
+# txt 报告：默认路径按开始时间命名，目录自动创建
+_bench_started = bench.datetime(2026, 9, 30, 8, 1, 2)
+t.eq(bench.default_report_path(Path("r"), _bench_started),
+     Path("r") / "bench_screencap_20260930_080102.txt", "默认报告文件名带开始时间")
+
+_report_root = Path(TD) / "bench_reports"
+_code, _out, _, _ = _bench_main(
+    ["192.0.2.99", "192.0.2.10", "-n", "2"],
+    {"192.0.2.99:5555": _BenchDevice("192.0.2.99:5555", connected=False),
+     "192.0.2.10:5555": _BenchDevice("192.0.2.10:5555",
+                                     [_BENCH_PNG, adb.AdbError("device offline")])},
+    report_root=_report_root, now=lambda: _bench_started)
+_report_file = _report_root / "bench_screencap_20260930_080102.txt"
+t.eq(_code, 2, "写报告不改变退出码（有连接失败仍是 2）")
+t.ok(_report_file.is_file(), "不传 --report 时写到默认目录，目录自动创建", str(_report_file))
+t.ok(f"报告已写入 {_report_file}" in _out, "stdout 告知报告路径", _out)
+_report_text = _report_file.read_text(encoding="utf-8") if _report_file.is_file() else ""
+t.ok(_report_text.startswith("adb 截图耗时压测报告\n"), "报告有标题", _report_text)
+t.ok("开始时间：2026-09-30 08:01:02" in _report_text, "报告写明开始时间", _report_text)
+t.ok("设备：192.0.2.99 192.0.2.10" in _report_text and "每台次数：2" in _report_text,
+     "报告写明设备和次数", _report_text)
+t.ok("== 192.0.2.10:5555 ==" in _report_text and "成功 1，失败 1" in _report_text,
+     "报告含每台设备的汇总", _report_text)
+t.ok("逐次记录：\n  [1/2] " in _report_text and "  [2/2] FAIL device offline" in _report_text,
+     "报告含逐次记录，失败行也在", _report_text)
+t.ok("连接失败：\n  192.0.2.99:5555：无法连接" in _report_text, "报告列出连不上的设备", _report_text)
+
+_explicit_report = Path(TD) / "nested" / "dir" / "bench.txt"
+_code, _, _, _ = _bench_main(
+    ["192.0.2.10", "-n", "1", "--report", str(_explicit_report)],
+    {"192.0.2.10:5555": _BenchDevice("192.0.2.10:5555", [_BENCH_PNG])})
+t.eq(_code, 0, "指定 --report 且全部成功，退出码 0")
+t.ok(_explicit_report.is_file(), "--report 指定的路径被写入，缺失的上级目录自动创建")
+
+_interrupted_path = Path(TD) / "interrupted.txt"
+_code, _, _, _ = _bench_main(
+    ["192.0.2.10", "192.0.2.11", "-n", "3", "--report", str(_interrupted_path)],
+    {"192.0.2.10:5555": _BenchDevice("192.0.2.10:5555", [_BENCH_PNG, KeyboardInterrupt()]),
+     "192.0.2.11:5555": _BenchDevice("192.0.2.11:5555", [_BENCH_PNG] * 3)})
+_interrupted_text = (_interrupted_path.read_text(encoding="utf-8")
+                     if _interrupted_path.is_file() else "")
+t.eq(_code, 130, "中断时写完报告仍返回 130")
+t.ok("已中断" in _interrupted_text, "中断时 txt 报告照样写出并标明中断", _interrupted_text)
+t.ok("== 192.0.2.11:5555 ==" not in _interrupted_text, "中断后未测的设备不出现在报告汇总里",
+     _interrupted_text)
+
+# 报告写不进去：上级路径是个普通文件
+_blocker = Path(TD) / "blocker.txt"
+_blocker.write_text("x", encoding="utf-8")
+_code, _out, _err, _ = _bench_main(
+    ["192.0.2.10", "-n", "1", "--report", str(_blocker / "bench.txt")],
+    {"192.0.2.10:5555": _BenchDevice("192.0.2.10:5555", [_BENCH_PNG])})
+t.eq(_code, 2, "报告写入失败退出码 2")
+t.ok("报告写入失败" in _err, "报告写入失败在 stderr 说明", _err)
+t.ok("== 192.0.2.10:5555 ==" in _out, "报告写入失败不影响 stdout 上的结果", _out)
+
+# 连接阶段按 Ctrl+C：已完成的设备照样写进报告，退出码 130
+_ctrl_c_report = Path(TD) / "ctrl_c_connect.txt"
+_code, _out, _, _created = _bench_main(
+    ["192.0.2.10", "192.0.2.11", "-n", "1", "--report", str(_ctrl_c_report)],
+    {"192.0.2.10:5555": _BenchDevice("192.0.2.10:5555", [_BENCH_PNG]),
+     "192.0.2.11:5555": _BenchDevice("192.0.2.11:5555", connect_error=KeyboardInterrupt())})
+_ctrl_c_text = _ctrl_c_report.read_text(encoding="utf-8") if _ctrl_c_report.is_file() else ""
+t.eq(_code, 130, "连接阶段 Ctrl+C 退出码 130")
+t.ok("== 192.0.2.10:5555 ==" in _ctrl_c_text and "已中断" in _ctrl_c_text,
+     "连接阶段 Ctrl+C 仍写出已完成设备的报告并标明中断", _ctrl_c_text)
+
+# 压测期间关掉自动重连：掉线要记成失败，不能把重连时间算进一次成功
+_heal_device = _BenchDevice("192.0.2.10:5555", [_BENCH_PNG])
+_bench_main(["192.0.2.10", "-n", "1"], {"192.0.2.10:5555": _heal_device})
+t.ok(_heal_device.auto_connect is False, "压测循环里关闭 adb 自动重连")
+
+# 在 adb devices 里但状态不是 device（unauthorized / offline）：当作连不上
+_code, _out, _err, _ = _bench_main(
+    ["192.0.2.10", "-n", "2"],
+    {"192.0.2.10:5555": _BenchDevice("192.0.2.10:5555", state="unauthorized")})
+t.eq(_code, 2, "unauthorized 设备按连接失败处理，退出码 2")
+t.ok("无法连接 192.0.2.10:5555" in _err and "unauthorized" in _err,
+     "unauthorized 在 stderr 说明原因", _err)
+t.ok("[1/2]" not in _out, "不可用的设备不跑截图轮次", _out)
+
+# adb 路径指向目录等 OSError：连接阶段报错不崩，截图阶段记成失败
+_code, _, _err, _ = _bench_main(
+    ["192.0.2.10", "-n", "1"],
+    {"192.0.2.10:5555": _BenchDevice("192.0.2.10:5555", connect_error=PermissionError("denied"))})
+t.eq(_code, 2, "连接阶段 OSError 退出码 2，不抛 traceback")
+t.ok("denied" in _err, "连接阶段 OSError 在 stderr 说明", _err)
+_os_result = bench.run_bench(
+    _BenchDevice("192.0.2.10:5555", [OSError("resource busy"), _BENCH_PNG]),
+    2, clock=_bench_clock(0.0, 1.0, 1.5), out=io.StringIO())
+t.eq([index for index, _ in _os_result.failures], [1], "截图阶段 OSError 记成失败并继续")
+
+# 控制台是 GBK 时，adb 报错里的替换字符 U+FFFD 不能让打印崩掉
+_gbk_stdout = io.TextIOWrapper(io.BytesIO(), encoding="gbk")
+_saved_stdout = sys.stdout
+sys.stdout = _gbk_stdout
+try:
+    try:
+        _gbk_code = bench.main(
+            ["192.0.2.10", "-n", "1", "--report", str(Path(TD) / "gbk.txt")],
+            make_device=lambda target: _BenchDevice(target, [adb.AdbError("bad � byte")]))
+    except UnicodeEncodeError as error:
+        _gbk_code = repr(error)
+finally:
+    sys.stdout = _saved_stdout
+t.eq(_gbk_code, 1, "GBK 控制台打印不可编码字符时不崩溃")
 
 # ================================================================== 收尾
 
