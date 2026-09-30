@@ -1832,6 +1832,58 @@ finally:
     sys.stdout = _saved_stdout
 t.eq(_gbk_code, 1, "GBK 控制台打印不可编码字符时不崩溃")
 
+# ================================================================== 11. 默认设备配置写入
+
+t.group("11. 默认设备配置写入与切换")
+
+from tvuitree.infrastructure import device_config
+
+_original_config_path = device_config.CONFIG_PATH
+_config_dir = Path(TD) / "device_config"
+_config_dir.mkdir(exist_ok=True)
+
+
+def _write_fixture_config(text: str) -> Path:
+    path = _config_dir / "config.json"
+    path.write_text(text, encoding="utf-8")
+    device_config.CONFIG_PATH = path
+    return path
+
+
+def _replace_failure(src, dst):
+    raise PermissionError("fixture locked")
+
+
+_FIXTURE_CONFIG = ('{\n  "TV_IP_Address": "10.0.0.1",\n  "port": 5555,\n'
+                   '  "adb": "X:\\\\adb.exe"\n}\n')
+try:
+    path = _write_fixture_config(_FIXTURE_CONFIG)
+    device_config.save_device_config(
+        {"TV_IP_Address": "10.0.0.2", "port": 5555, "adb": "X:\\adb.exe"})
+    t.eq(path.read_text(encoding="utf-8"),
+         '{\n  "TV_IP_Address": "10.0.0.2",\n  "port": 5555,\n'
+         '  "adb": "X:\\\\adb.exe"\n}\n',
+         "保存保持 2 空格缩进、字段顺序和末尾换行")
+    t.eq(sorted(p.name for p in _config_dir.iterdir()), ["config.json"],
+         "保存后不残留临时文件")
+
+    path = _write_fixture_config(_FIXTURE_CONFIG)
+    _original_replace = device_config.os.replace
+    device_config.os.replace = _replace_failure
+    try:
+        device_config.save_device_config({"TV_IP_Address": "10.0.0.9", "port": 1})
+        raised = False
+    except ValueError:
+        raised = True
+    finally:
+        device_config.os.replace = _original_replace
+    t.ok(raised, "替换失败抛出 ValueError，说明写入失败")
+    t.eq(path.read_text(encoding="utf-8"), _FIXTURE_CONFIG, "替换失败时原配置不变")
+    t.eq(sorted(p.name for p in _config_dir.iterdir()), ["config.json"],
+         "替换失败时删除临时文件")
+finally:
+    device_config.CONFIG_PATH = _original_config_path
+
 # ================================================================== 收尾
 
 shutil.rmtree(TD, ignore_errors=True)

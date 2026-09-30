@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 
 
@@ -21,3 +23,20 @@ def load_device_config() -> dict[str, object]:
     if not isinstance(config, dict):
         raise ValueError(f"设备配置文件必须是 JSON 对象：{CONFIG_PATH}")
     return config
+
+
+def save_device_config(config: dict[str, object]) -> None:
+    """Atomically replace the config so a failed write leaves the old file intact."""
+    target = CONFIG_PATH
+    text = json.dumps(config, ensure_ascii=False, indent=2) + "\n"
+    fd, temp_name = tempfile.mkstemp(prefix=".config-", suffix=".tmp", dir=target.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as output:
+            output.write(text)
+        os.replace(temp_name, target)
+    except OSError as error:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise ValueError(f"无法写入设备配置文件 {target}：{error}") from error
