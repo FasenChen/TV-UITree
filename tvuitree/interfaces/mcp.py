@@ -13,7 +13,9 @@ import base64
 import datetime as dt
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 
 from tvuitree.application.connection import (
     connection_options, connect_device, update_default_device,
@@ -357,7 +359,11 @@ def get_visible(
 
 
 @mcp.tool()
-def set_default_device(TV_IP_Address: str, port: Optional[int] = None) -> dict:
+def set_default_device(
+    # strict：参数会写入配置，不能让 pydantic 把 true、"5556" 或 5557.0 宽松转换成端口
+    TV_IP_Address: Annotated[str, Field(strict=True)],
+    port: Annotated[Optional[int], Field(strict=True)] = None,
+) -> dict:
     """修改 config.json 的默认 TV 地址（可选端口）；之后不传地址的调用都连新设备。只写配置，不连接设备。"""
     with tool_timing("set_default_device") as timer:
         try:

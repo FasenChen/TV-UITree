@@ -1947,6 +1947,18 @@ try:
         device_config.os.replace = _original_replace
     t.ok("无法写入设备配置文件" in locked.get("error", ""), "写入失败返回可读错误")
     t.eq(path.read_bytes(), before, "写入失败时配置不变")
+
+    # 走 MCP 协议路径：参数校验不能把 true / "5556" / 5557.0 宽松转换后写入
+    for bad_args in ({"TV_IP_Address": "10.0.0.4", "port": True},
+                     {"TV_IP_Address": "10.0.0.4", "port": "5556"},
+                     {"TV_IP_Address": "10.0.0.4", "port": 5557.0},
+                     {"TV_IP_Address": 123}):
+        try:
+            asyncio.run(mcp_interface.mcp.call_tool("set_default_device", bad_args))
+        except Exception:
+            pass
+        t.eq(path.read_bytes(), before, f"MCP 调用不宽松转换参数：{bad_args}")
+    timing.LOG_STREAM = io.StringIO()
 finally:
     device_config.CONFIG_PATH = _original_config_path
     timing.LOG_STREAM = _original_timing_stream_11
