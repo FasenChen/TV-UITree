@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""tv-uitree 的只读 MCP 服务。
+"""tv-uitree 的 MCP 服务。
 
-宿主通过 stdio 启动本文件。服务只读取 TV 状态、完整树和截图，不发送按键，
+宿主通过 stdio 启动本文件。服务读取 TV 状态、完整树和截图，不发送按键；
+唯一的写操作是 set_default_device 修改 config.json 的默认设备。
 与 CLI 共用应用层采集、观察摘要和截图绘制。
 """
 
@@ -14,7 +15,9 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from tvuitree.application.connection import connection_options, connect_device
+from tvuitree.application.connection import (
+    connection_options, connect_device, update_default_device,
+)
 from tvuitree.application.observation import collect_full_json, collect_observation, collect_visible
 from tvuitree.application.screenshot import render_focus_png
 from tvuitree.domain.observation import error_observation
@@ -351,3 +354,14 @@ def get_visible(
                 return collect_visible(full_json=full)
         except Exception as exc:
             return {"error": str(exc), "error_type": type(exc).__name__, "mode": "visible"}
+
+
+@mcp.tool()
+def set_default_device(TV_IP_Address: str, port: Optional[int] = None) -> dict:
+    """修改 config.json 的默认 TV 地址（可选端口）；之后不传地址的调用都连新设备。只写配置，不连接设备。"""
+    with tool_timing("set_default_device") as timer:
+        try:
+            with timer.stage("save"):
+                return update_default_device(TV_IP_Address=TV_IP_Address, port=port)
+        except Exception as exc:
+            return {"error": str(exc), "error_type": type(exc).__name__}

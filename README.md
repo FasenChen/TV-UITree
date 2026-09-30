@@ -92,7 +92,7 @@ python main.py observe --from-json full.json --out observe.json
 (Resolve-Path .\main.py).Path
 ```
 
-在 MCP 客户端中选择 stdio 传输，将第一条路径设为启动命令，第二条路径设为第一个参数，并将 `mcp` 设为第二个参数，工作目录设为仓库根目录。启动后服务等待客户端请求，终端没有页面输出是正常现象；客户端应能列出 `observe_tv`、`get_full_tree`、`get_visible`、`get_current_focus` 和 `get_focus_screenshot`。若启动时报缺少 `mcp`，在仓库根目录执行 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`。
+在 MCP 客户端中选择 stdio 传输，将第一条路径设为启动命令，第二条路径设为第一个参数，并将 `mcp` 设为第二个参数，工作目录设为仓库根目录。启动后服务等待客户端请求，终端没有页面输出是正常现象；客户端应能列出 `observe_tv`、`get_full_tree`、`get_visible`、`get_current_focus`、`get_focus_screenshot` 和 `set_default_device`。若启动时报缺少 `mcp`，在仓库根目录执行 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`。
 
 | 工具 | 返回内容 | 常用参数 |
 |---|---|---|
@@ -101,10 +101,11 @@ python main.py observe --from-json full.json --out observe.json
 | `get_visible` | 当前屏幕的控件摘要、焦点及操作属性 | `TV_IP_Address`、`port`、`no_connect` |
 | `get_current_focus` | 精简的焦点状态和焦点节点信息 | `TV_IP_Address`、`port` |
 | `get_focus_screenshot` | 返回截图结果、本地 PNG 路径和可直接显示的图片 | `TV_IP_Address`、`port` |
+| `set_default_device` | 修改 `config.json` 的默认设备，返回切换前后的目标 | `TV_IP_Address`（必填）、`port` |
 
 ### MCP 工具参数
 
-五个工具都从仓库根目录的 `config.json` 读取默认设备参数。调用时传入的值优先于配置文件；可以只覆盖其中一个值。MCP 参数 `TV_IP_Address` 对应 CLI 的 `--TV_IP_Address`。以下参数对五个工具都适用：
+五个读取工具都从仓库根目录的 `config.json` 读取默认设备参数。调用时传入的值优先于配置文件；可以只覆盖其中一个值。MCP 参数 `TV_IP_Address` 对应 CLI 的 `--TV_IP_Address`。以下参数对这五个读取工具都适用：
 
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
@@ -120,6 +121,8 @@ python main.py observe --from-json full.json --out observe.json
 | `no_dumpsys` | boolean | `false` | `observe_tv` 和 `get_full_tree` 使用。为 `true` 时只读取 uiautomator2 无障碍树；为 `false` 时同时读取 `dumpsys activity top`，用于补充 View 节点和 R0–R3 配对证据。 |
 
 `get_current_focus` 和 `get_focus_screenshot` 按默认配置连接 TV，只读取焦点所需的 a11y 树，不提供这两个诊断参数。需要双源诊断时使用 `observe_tv` 或 `get_full_tree`。
+
+`set_default_device` 把 `TV_IP_Address` 写进 `config.json`；传入 `port` 时一并修改，省略时保留原端口，`adb` 等其他字段不变。校验规则与连接参数相同，非法值不会写入。写入是原子的，失败时原文件保持不变。配置在每次连接时重新读取，切换后无需重启 MCP 服务。工具只改配置、不执行 `adb connect`；成功返回 `previous`、`current` 和 `config_path`，失败返回 `error` 与 `error_type`。`config.json` 受 git 跟踪，切换后不要把本机设备地址提交进仓库。
 
 `get_visible` 与 `python main.py visible` 共用同一观察服务，只采集 a11y，输出 `tv-visible/v1`。结构类似 `observe_tv`：`focus.status` 给出焦点状态，找到唯一焦点时 `focus.path` 指向 `page.nodes` 中的节点；`page.nodes` 包含屏幕内有内容或焦点的控件摘要，提供标签、原始树路径、屏幕坐标及可用操作。同一可操作行的标题和值合并为一个节点；无内容的布局容器不返回。无显示文字的可操作图标若有 `content_desc`，会以 `accessibility_labels` 标出，避免把无障碍描述误认为屏幕文字。只依据 a11y 的 `bounds_screen` 读数、可见属性及屏幕交集判断，保留部分进入屏幕的节点；dumpsys 派生坐标不作为当前可见的证明。省略号摘要与完整文本同时出现时，只保留完整文本。输出不包含完整树、R0–R3 诊断统计或截图 OCR，因此不能证明像素遮挡。连接或采集失败时返回 `mode=visible` 与 `error`，异常时另含 `error_type`。
 
@@ -218,7 +221,7 @@ MCP 工具没有 `--from-json`、`--out` 或按键参数；每次调用都会重
 
 ## 用 MCP Inspector 网页调试
 
-Inspector 的通用安装、启动、网页操作和排错步骤见 [MCP Inspector 通用使用指南](docs/MCP_Inspector_通用使用指南.md)；本项目五个工具的用法见上文。
+Inspector 的通用安装、启动、网页操作和排错步骤见 [MCP Inspector 通用使用指南](docs/MCP_Inspector_通用使用指南.md)；本项目六个工具的用法见上文。
 
 仓库提供了一个可重复启动的 PowerShell 包装脚本，用官方 [MCP Inspector](https://github.com/modelcontextprotocol/inspector) 打开本地网页调试界面。Inspector 需要 Node.js 22.19 或更高版本；项目本身仍由 `.venv` 中的 Python 启动。
 
@@ -259,7 +262,7 @@ npx -y @modelcontextprotocol/inspector .\.venv\Scripts\python.exe .\main.py mcp
 }
 ```
 
-`get_full_tree` 和 `get_visible` 不接受 `max_nodes`；如果只验证 `get_full_tree` 的 a11y 读取，可以把 `no_dumpsys` 设为 `true`。`get_visible` 始终只采集 a11y，不需要此参数。`get_current_focus` 和 `get_focus_screenshot` 不接受 `max_nodes`、`no_connect` 或 `no_dumpsys`。Inspector 网页本身只调试 MCP 协议和工具参数；所有工具都是只读采集，不会发送遥控器按键。
+`get_full_tree` 和 `get_visible` 不接受 `max_nodes`；如果只验证 `get_full_tree` 的 a11y 读取，可以把 `no_dumpsys` 设为 `true`。`get_visible` 始终只采集 a11y，不需要此参数。`get_current_focus` 和 `get_focus_screenshot` 不接受 `max_nodes`、`no_connect` 或 `no_dumpsys`。Inspector 网页本身只调试 MCP 协议和工具参数；除 `set_default_device` 修改 `config.json` 外，其余工具都是只读采集；所有工具都不会发送遥控器按键。
 
 stdio 服务的标准输出专用于 MCP 协议，诊断信息写入标准错误；不要在 `main.py mcp` 服务中增加普通标准输出日志，否则可能导致 Inspector 连接失败。更完整的协议、CLI 和网页选项见 [MCP Inspector 官方文档](https://github.com/modelcontextprotocol/docs/blob/main/docs/tools/inspector.mdx)。
 
@@ -369,6 +372,6 @@ python main.py --help
 python main.py tree --prune-list
 ```
 
-`tests/selftest_tree.py` 覆盖解析、R0–R3 配对、剪枝、CLI、观察摘要、可视控件摘要和截图几何；不需要连接 TV。已有 `full.json` 时，可运行 `python main.py observe --from-json full.json --out observe.json` 检查离线观察。MCP 接入时，在客户端确认能列出五个工具，并检查 `get_focus_screenshot` 的 PNG 是否有红色焦点框。调用任一 MCP 工具后，服务的标准错误中应出现一行以 `[tv-uitree]` 开头的耗时记录。
+`tests/selftest_tree.py` 覆盖解析、R0–R3 配对、剪枝、CLI、观察摘要、可视控件摘要和截图几何；不需要连接 TV。已有 `full.json` 时，可运行 `python main.py observe --from-json full.json --out observe.json` 检查离线观察。MCP 接入时，在客户端确认能列出六个工具，并检查 `get_focus_screenshot` 的 PNG 是否有红色焦点框。调用任一 MCP 工具后，服务的标准错误中应出现一行以 `[tv-uitree]` 开头的耗时记录。
 
 真实设备验收时，先在 TV 上打开一个有焦点的页面，再采集 `observe`；需要验证按键后的焦点变化时，发送一个遥控器按键并重新采集。`adb devices -l` 只说明 ADB 连接状态：若报 `device offline`，先恢复 ADB 连接；若报“dumpsys 里没有可用的 ACTIVITY 段”，当前画面没有可用的补充树，可明确使用 `--no-dumpsys` 只读 a11y。若 uiautomator2 同时报告 `dump empty`，应切换到有无障碍节点的页面后重试。

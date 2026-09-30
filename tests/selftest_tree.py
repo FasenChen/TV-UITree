@@ -1234,6 +1234,10 @@ try:
     for name in ("get_current_focus", "get_focus_screenshot"):
         t.eq(set(mcp_schemas[name]["properties"]), {"TV_IP_Address", "port", "adb"},
              f"{name} 只公开设备连接参数")
+    t.eq(set(mcp_schemas["set_default_device"]["properties"]), {"TV_IP_Address", "port"},
+         "set_default_device 只公开地址和端口")
+    t.eq(mcp_schemas["set_default_device"].get("required"), ["TV_IP_Address"],
+         "set_default_device 必须给出地址")
     t.eq(set(mcp_schemas["get_visible"]["properties"]),
          {"TV_IP_Address", "port", "adb", "no_connect"},
          "get_visible 只公开设备连接参数，不采集无关的 dumpsys")
@@ -1840,6 +1844,7 @@ from tvuitree.infrastructure import device_config
 from tvuitree.application import connection as app_connection
 
 _original_config_path = device_config.CONFIG_PATH
+_original_timing_stream_11 = timing.LOG_STREAM
 _config_dir = Path(TD) / "device_config"
 _config_dir.mkdir(exist_ok=True)
 
@@ -1917,8 +1922,34 @@ try:
     result = app_connection.update_default_device(TV_IP_Address="10.0.0.5")
     t.eq(result["previous"], {"TV_IP_Address": None, "port": 5555},
          "原配置缺地址时 previous 如实给 None")
+
+    timing.LOG_STREAM = io.StringIO()
+    path = _write_fixture_config(_FIXTURE_CONFIG)
+    mcp_result = mcp_interface.set_default_device(TV_IP_Address="10.0.0.7")
+    t.eq(mcp_result["current"], {"TV_IP_Address": "10.0.0.7", "port": 5555},
+         "MCP 工具切换默认设备")
+    t.eq(_timing_calls(), [("set_default_device", ["save"], None)],
+         "set_default_device 写一行耗时，只有 save 阶段")
+
+    before = path.read_bytes()
+    bad = mcp_interface.set_default_device(TV_IP_Address="10.0.0.8:5555")
+    t.eq(set(bad), {"error", "error_type"}, "非法地址返回结构化错误")
+    t.eq(bad["error_type"], "ValueError", "错误类型是 ValueError")
+    t.eq(path.read_bytes(), before, "MCP 非法调用不改动配置")
+    t.eq(_timing_calls(), [("set_default_device", ["save"], "save")],
+         "失败时日志标出 failed=save")
+
+    _original_replace = device_config.os.replace
+    device_config.os.replace = _replace_failure
+    try:
+        locked = mcp_interface.set_default_device(TV_IP_Address="10.0.0.9")
+    finally:
+        device_config.os.replace = _original_replace
+    t.ok("无法写入设备配置文件" in locked.get("error", ""), "写入失败返回可读错误")
+    t.eq(path.read_bytes(), before, "写入失败时配置不变")
 finally:
     device_config.CONFIG_PATH = _original_config_path
+    timing.LOG_STREAM = _original_timing_stream_11
 
 # ================================================================== 收尾
 
