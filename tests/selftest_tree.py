@@ -1837,6 +1837,7 @@ t.eq(_gbk_code, 1, "GBK 控制台打印不可编码字符时不崩溃")
 t.group("11. 默认设备配置写入与切换")
 
 from tvuitree.infrastructure import device_config
+from tvuitree.application import connection as app_connection
 
 _original_config_path = device_config.CONFIG_PATH
 _config_dir = Path(TD) / "device_config"
@@ -1881,6 +1882,41 @@ try:
     t.eq(path.read_text(encoding="utf-8"), _FIXTURE_CONFIG, "替换失败时原配置不变")
     t.eq(sorted(p.name for p in _config_dir.iterdir()), ["config.json"],
          "替换失败时删除临时文件")
+
+    path = _write_fixture_config(_FIXTURE_CONFIG)
+    result = app_connection.update_default_device(TV_IP_Address="10.0.0.2")
+    t.eq(result["previous"], {"TV_IP_Address": "10.0.0.1", "port": 5555}, "返回切换前的目标")
+    t.eq(result["current"], {"TV_IP_Address": "10.0.0.2", "port": 5555},
+         "只传 IP 时端口保持原值")
+    t.eq(result["config_path"], str(path), "返回被修改的配置文件路径")
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    t.eq(saved, {"TV_IP_Address": "10.0.0.2", "port": 5555, "adb": "X:\\adb.exe"},
+         "切换设备保留 adb 等其他字段")
+    t.eq(app_connection.connection_options().target, "10.0.0.2:5555",
+         "切换后下一次连接立即使用新目标，无需重启")
+
+    result = app_connection.update_default_device(TV_IP_Address="10.0.0.3", port=5556)
+    t.eq(result["current"], {"TV_IP_Address": "10.0.0.3", "port": 5556}, "可同时切换端口")
+
+    for bad_kwargs in ({"TV_IP_Address": "10.0.0.4:5555"},
+                       {"TV_IP_Address": " 10.0.0.4"},
+                       {"TV_IP_Address": ""},
+                       {"TV_IP_Address": "10.0.0.4", "port": True},
+                       {"TV_IP_Address": "10.0.0.4", "port": 0},
+                       {"TV_IP_Address": "10.0.0.4", "port": 70000}):
+        before = path.read_bytes()
+        try:
+            app_connection.update_default_device(**bad_kwargs)
+            rejected = False
+        except ValueError:
+            rejected = True
+        t.ok(rejected, f"非法参数被拒绝：{bad_kwargs}")
+        t.eq(path.read_bytes(), before, f"非法参数不改动配置文件：{bad_kwargs}")
+
+    _write_fixture_config('{\n  "port": 5555\n}\n')
+    result = app_connection.update_default_device(TV_IP_Address="10.0.0.5")
+    t.eq(result["previous"], {"TV_IP_Address": None, "port": 5555},
+         "原配置缺地址时 previous 如实给 None")
 finally:
     device_config.CONFIG_PATH = _original_config_path
 
