@@ -4,6 +4,8 @@
 
 The repository has one root Python entry point, `main.py`. It dispatches `observe`, `tree`, `visible`, `input`, `shot`, and `mcp` commands. `tvuitree/interfaces/` owns protocol, CLI arguments, and terminal output; `tvuitree/application/` coordinates use cases; `tvuitree/domain/` owns pure tree, observation, and screenshot rules; `tvuitree/infrastructure/` owns ADB, uiautomator2, files, and PNG drawing. `tests/selftest_tree.py` is the offline regression suite. `_temp/` contains investigation artifacts.
 
+Comment language: module docstrings are one English line; function/class docstrings and inline comments are Chinese. Longer module responsibility notes belong in subsequent Chinese comments. User-facing CLI/MCP strings stay Chinese. Do not leave empty section banners or comments that refer to a deleted file-header principle list. Library modules under `tvuitree/` do not use shebangs or coding cookies; `main.py`, `tests/selftest_tree.py`, and `scripts/` may.
+
 Keep dependencies flowing inward: domain code must not access devices, files, the terminal, MCP, Pillow, or uiautomator2. CLI and MCP must use the same application observation service. Preserve explicit R0–R3 evidence and the distinction between source readings and derived values. Do not infer focus or visibility from `focusable` alone.
 
 ## Data flow

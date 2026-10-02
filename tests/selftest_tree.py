@@ -159,7 +159,7 @@ def _a11y_xml(spec, indent: int = 2) -> str:
 #       beta 靠 R2 焦点配对，alpha 只能靠 R3 子序列顺序配对，两者几何都是 drift 档。
 #   * Gamma 的布局矩形比父容器高（0,700-1920,1300 超出 MyGrid 的 1080），
 #     a11y 报的是**裁剪后**的 [0,700][1920,1080] → clip 档，同时它也是
-#     tv_shot「祖先链溢出容器」告警的样本。
+#     画框「祖先链溢出容器」告警的样本。
 #   * 最后一个无 id / 无文字 / 无任何布尔标志的 FrameLayout 是 empty 开关的样本。
 A11Y_SPEC = [
     {"cls": "android.widget.FrameLayout", "bounds": "[0,0][1920,1080]", "children": [
@@ -587,7 +587,7 @@ t.eq(sum(1 for n in uni_flat if n.kind == "dumpsys"), EXP_INSERTED,
 t.eq(OBJ["mode"], "full", "全量 JSON 的 mode")
 t.eq(OBJ["primary_source"], "uiautomator2 (a11y)", "主源标注")
 t.eq(OBJ["supplement_source"], "dumpsys activity top (View Hierarchy)", "补充源标注")
-t.has(OBJ, "captured_at", "要有采集时刻（tv_shot 靠它判断截图与取树是否同时刻）")
+t.has(OBJ, "captured_at", "要有采集时刻（shot 靠它判断截图与取树是否同时刻）")
 t.eq(count(OBJ["tree"]), EXP_TREE_NODES, "全量树节点数")
 t.eq(OBJ["dumpsys_only"], [], "本夹具没有「位置无法确定」的 dumpsys 节点")
 t.eq(OBJ["segment"], PKG, "段包名")
@@ -926,9 +926,9 @@ for short, full in remote_input.KEY_ALIASES.items():
          f"短名 {short} 与它的键码 {full} 必须一致")
 t.not_has(remote_input.KEY_ALIASES, "KEYCODE_DPAD_DOWN", "别名表里只放不带前缀的键码名")
 
-# tv_shot：从树 JSON 取两种坐标 + 祖先链溢出告警
+# 画框：从树 JSON 取两种坐标 + 祖先链溢出告警
 sn = screenshot.flatten([screenshot.JsonNode(n) for n in OBJ["tree"]])
-t.eq(len(sn), EXP_TREE_NODES, "tv_shot 能把整棵树铺平成节点")
+t.eq(len(sn), EXP_TREE_NODES, "画框逻辑能把整棵树铺平成节点")
 g = [n for n in sn if n["resource_id"] == "com.demo:id/gamma"][0]
 a = [n for n in sn if n["resource_id"] == "com.demo:id/alpha"][0]
 t.eq(g.rect_a11y(), (0, 700, 1920, 1080), "a11y 读数")
@@ -1157,9 +1157,9 @@ cli_src = open(os.path.join(HERE, "tvuitree", "interfaces", "observe.py"), "r", 
 shot_src = open(os.path.join(HERE, "tvuitree", "infrastructure", "image.py"), "r", encoding="utf-8").read()
 input_src = open(os.path.join(HERE, "tvuitree", "application", "input.py"), "r", encoding="utf-8").read()
 t.ok("screencap" not in tree_src and "screencap" not in core_src,
-     "树采集实现绝不截图（截图是 tv_shot.py 的事）")
+     "树采集实现绝不截图（截图是 infrastructure/image.py 的事）")
 t.ok("input keyevent" not in tree_src and "input keyevent" not in core_src,
-     "树采集实现绝不发按键（按键是 tv_input.py 的事）")
+     "树采集实现绝不发按键（按键是 application/input.py 的事）")
 t.ok("import tv_tree" not in observe_src and "from tv_tree" not in observe_src,
      "观察实现直接依赖内部包，不反向导入兼容入口")
 t.ok("from tvuitree.application.observation import" in cli_src,
@@ -1167,7 +1167,7 @@ t.ok("from tvuitree.application.observation import" in cli_src,
 t.ok("screencap" in shot_src, "截图要在 infrastructure/image.py 里实现")
 t.ok("input keyevent" in input_src, "发按键要在 application/input.py 里实现")
 t.ok("fetch_u2" not in shot_src and "parse_dumpsys_top" not in shot_src,
-     "tv_shot.py 不自己取树（它只读 JSON）")
+     "infrastructure/image.py 不自己取树（它只读 JSON）")
 
 # 画框的立场必须写在代码里，并挡住「靠经验修偏差」的两种典型写法复发
 t.ok("逐像素对齐" in shot_src and "不加偏移" in shot_src,
@@ -1178,7 +1178,7 @@ t.ok("0.9 <= kx" not in shot_src and "<= 1.2" not in shot_src,
      "不许再用「比例落在某区间就算缩放」的经验区间（会把滚动偏移误报成缩放）")
 t.ok("cl - w" not in shot_src and "ct - w" not in shot_src,
      "不许再把框向外膨胀几像素（那会把要验证的差值盖掉）")
-t.ok("build_full_json" not in input_src, "tv_input.py 与取树无关")
+t.ok("build_full_json" not in input_src, "application/input.py 与取树无关")
 
 # README 是「首页说明书」：开关名与脚本名必须与代码同步
 readme = os.path.join(HERE, "README.md")
