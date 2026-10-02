@@ -15,8 +15,6 @@ import uuid
 from pathlib import Path
 from typing import Annotated, Optional
 
-from pydantic import Field
-
 from tvuitree.application.connection import (
     connection_options, connect_device, update_default_device,
 )
@@ -27,6 +25,7 @@ from tvuitree.infrastructure.image import capture
 from tvuitree.interfaces.timing import tool_timing
 
 try:
+    from pydantic import Field
     from mcp.server.fastmcp import FastMCP, Image
 except ImportError as exc:  # pragma: no cover - depends on optional runtime dependency
     raise SystemExit(

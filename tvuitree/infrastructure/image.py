@@ -25,12 +25,9 @@ def focus_border_width(png_bytes: bytes) -> int:
 
 
 def load_tree(path: str) -> dict:
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            obj = json.load(f)
-    except Exception as e:
-        raise SystemExit(f"读不了 {path}：{type(e).__name__}: {e}")
-    if not isinstance(obj.get("tree"), list):
+    with open(path, "r", encoding="utf-8") as source:
+        obj = json.load(source)
+    if not isinstance(obj, dict) or not isinstance(obj.get("tree"), list):
         raise ValueError(f"{path} 里没有 tree，不像是本工具输出的控件树 JSON。")
     return obj
 

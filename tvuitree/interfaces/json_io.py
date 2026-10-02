@@ -14,7 +14,8 @@ def _emit(obj: dict, out_path: Optional[str]) -> None:
     if out_path:
         with open(out_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(text + "\n")
-        print(c(f"[out] 已写入 {out_path}（{len(text)} 字节）", C.GRY), file=sys.stderr)
+        byte_count = len((text + "\n").encode("utf-8"))
+        print(c(f"[out] 已写入 {out_path}（{byte_count} 字节）", C.GRY), file=sys.stderr)
     else:
         print(text)
 

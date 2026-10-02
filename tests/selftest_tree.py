@@ -47,6 +47,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -970,6 +971,45 @@ t.ok(any("滚动偏移" in x for x in ln2), "不成等比时要指向可查的�
 t.ok(any("不改" in x and "补偿" in x for x in ln2),
      "说明里要写死「不改读数、不补偿」——这是本脚本的立场")
 t.eq(image.load_tree(FULL_PATH)["mode"], "full", "load_tree 能读回自己写出的 JSON")
+
+bad_json_cases = [
+    ("missing", None, OSError),
+    ("malformed", "{", ValueError),
+    ("array", "[1, 2, 3]", ValueError),
+    ("null", "null", ValueError),
+    ("no_tree", "{}", ValueError),
+    ("wrong_tree", '{"tree": {}}', ValueError),
+]
+for label, contents, expected_error in bad_json_cases:
+    source_path = os.path.join(TD, f"shot_{label}.json")
+    if contents is not None:
+        with open(source_path, "w", encoding="utf-8") as source:
+            source.write(contents)
+    raised = None
+    try:
+        image.load_tree(source_path)
+    except (Exception, SystemExit) as error:
+        raised = error
+    t.ok(isinstance(raised, expected_error),
+         f"load_tree 的 {label} 输入抛 {expected_error.__name__}",
+         f"实际 {type(raised).__name__}: {raised}")
+    if label in ("array", "null", "no_tree", "wrong_tree"):
+        t.ok("tree" in str(raised), f"{label} 错误说明树结构不合法")
+    out_path = os.path.join(TD, f"shot_{label}.png")
+    proc = subprocess.run(
+        [sys.executable, os.path.join(HERE, "main.py"), "shot",
+         "--json", source_path,
+         "--image", os.path.join(TD, "must_not_be_read.png"),
+         "--out", out_path, "--no-connect", "--quiet", "--no-color"],
+        cwd=HERE, capture_output=True, timeout=15,
+    )
+    t.eq(proc.returncode, 1, f"shot 的 {label} 输入退出码为 1")
+    t.ok(bool(proc.stderr.strip()), f"shot 的 {label} 输入在 stderr 给出说明")
+    t.ok(b"Traceback" not in proc.stderr,
+         f"shot 的 {label} 输入无 traceback", repr(proc.stderr))
+    t.eq(proc.stdout, b"", f"shot 的 {label} 输入不输出成功结果")
+    t.ok(not os.path.exists(out_path), f"shot 的 {label} 输入不生成 PNG")
+
 
 try:
     from PIL import Image
@@ -1989,6 +2029,50 @@ try:
 finally:
     device_config.CONFIG_PATH = _original_config_path
     timing.LOG_STREAM = _original_timing_stream_11
+
+# ================================================================== 12. 接口契约与整理回归
+
+t.group("12. JSON 错误处理、接口命名和结构回归")
+
+def _read(rel: str) -> str:
+    with open(os.path.join(HERE, rel), "r", encoding="utf-8") as source:
+        return source.read()
+
+from tvuitree.interfaces import json_io
+_buf = io.StringIO()
+_out = os.path.join(TD, "emit_zh.json")
+with contextlib.redirect_stderr(_buf):
+    json_io._emit({"tree": [], "note": "中文"}, _out)
+with open(_out, "rb") as source:
+    payload = source.read()
+t.ok(f"（{len(payload)} 字节）" in _buf.getvalue(),
+     "JSON 文件提示按实际 UTF-8 字节数计数（含末尾 LF）", repr(_buf.getvalue()))
+t.ok(payload.endswith(b"\n") and b"\r\n" not in payload,
+     "JSON 文件保留现有 LF 写入约定")
+
+blocked_import_script = r"""
+import builtins
+import sys
+original_import = builtins.__import__
+blocked = sys.argv[1]
+def isolated_import(name, globals=None, locals=None, fromlist=(), level=0):
+    if name == blocked or name.startswith(blocked + "."):
+        raise ModuleNotFoundError(f"No module named '{blocked}'", name=blocked)
+    return original_import(name, globals, locals, fromlist, level)
+builtins.__import__ = isolated_import
+from tvuitree.interfaces import mcp
+"""
+for blocked_dependency in ("pydantic", "mcp"):
+    proc = subprocess.run(
+        [sys.executable, "-c", blocked_import_script, blocked_dependency],
+        cwd=HERE, capture_output=True, timeout=15,
+    )
+    t.eq(proc.returncode, 1, f"缺 {blocked_dependency} 时退出码为 1")
+    t.ok(b"pip install" in proc.stderr and b"mcp>=1.28,<2" in proc.stderr,
+         f"缺 {blocked_dependency} 时给统一安装提示", repr(proc.stderr))
+    t.ok(b"Traceback" not in proc.stderr,
+         f"缺 {blocked_dependency} 时无 traceback", repr(proc.stderr))
+    t.eq(proc.stdout, b"", f"缺 {blocked_dependency} 时 stdout 保持空")
 
 # ================================================================== 收尾
 
