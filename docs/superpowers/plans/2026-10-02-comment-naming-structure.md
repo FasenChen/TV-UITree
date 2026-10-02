@@ -21,7 +21,7 @@
 - 模块文档一行英文；函数 / 类文档和行内注释用中文。较长的模块职责说明写在后续中文注释中，不把多行英文模块文档作为例外。用户可见字符串保持中文。
 - Python 3.10+、四空格、UTF-8、新代码带类型注解。
 - 检查命令用 `.\.venv\Scripts\python.exe`。自检是 `python tests/selftest_tree.py`，没有单测选择器。
-- 原方案的执行目标仍是 `main`，不开分支、不提 PR。每个已完成阶段先通过完整检查，再精确暂存该阶段文件并审查 staged diff；不要把 `config.json` 的本机地址提交进去。本次只修订计划，不执行生产代码改动或提交。
+- 原方案的执行目标仍是 `main`，不开分支、不提 PR。每个已完成阶段先通过完整检查，再精确暂存该阶段文件并审查 staged diff；不要把 `config.json` 的本机地址提交进去。计划修订后，用户已明确请求执行；实际执行记录见文末。
 - `_temp/golden/` 是 gitignore 的真机金样，不作为本计划的必改文件；若本地有 `golden.py`，`pick_block_ex` 重命名后它已有 `getattr(..., "pick_block")` 回退。
 
 ## Review Focus
@@ -85,7 +85,7 @@ git diff --check
 
 任务编号沿用原方案，实际按 **4 → 3 → 2 → 5 → 1 → 6** 执行，前两次提交处理行为问题，之后才提交命名、结构和文案整理。任务依赖按此顺序改写：Task 4 暂时使用 `_emit` / `_load_full`，Task 3 暂时使用 `_anomaly`；Task 2 再统一公开名并同步测试调用点。Task 4 先创建第 12 节及 `_read`，其他任务只往该节追加，不重复创建测试组。
 
-- [ ] **开始前记录状态并运行现有完整检查**
+- [x] **开始前记录状态并运行现有完整检查**
 
 ```powershell
 git status --short
@@ -133,7 +133,7 @@ if ($LASTEXITCODE -ne 0) { throw 'diff check failed' }
 - Consumes: 无
 - Produces: 约定生效——模块文档英文一行；函数/类文档和注释中文；库模块无 shebang / coding 声明；不再出现「本脚本」「设计原则第 N 条」和空的分段标题。
 
-- [ ] **Step 1: 审查文案清理范围**
+- [x] **Step 1: 审查文案清理范围**
 
 ```powershell
 rg -n '本脚本|设计原则第|^#!|coding: utf-8|CLI 公共参数|component 字符串处理' tvuitree
@@ -141,7 +141,7 @@ rg -n '本脚本|设计原则第|^#!|coding: utf-8|CLI 公共参数|component �
 
 逐处核对是否为过时说明；不是运行时行为，不新增逐字措辞断言，不为翻译单独制造失败测试。清理后 rg 无匹配时退出码 1 是正常搜索结果；模块职责、采集顺序和证据限制由文案 diff 审查确认。
 
-- [ ] **Step 2: 改生产注释（最小集合，按下表逐条替换）**
+- [x] **Step 2: 改生产注释（最小集合，按下表逐条替换）**
 
 `tvuitree/domain/observation.py` 删掉第 1–2 行 shebang 和 coding，模块文档改成：
 
@@ -216,13 +216,13 @@ rg -n '本脚本|设计原则第|^#!|coding: utf-8|CLI 公共参数|component �
 
 `tests/selftest_tree.py` 和 `scripts/` 保留 shebang / coding（它们是入口脚本）。测试正文里提到「本脚本」指自检自己，保留。
 
-- [ ] **Step 3: 运行完整检查并审查文案 diff**
+- [x] **Step 3: 运行完整检查并审查文案 diff**
 
 Run: 本计划「每次提交前的完整检查」中的整块命令。
 
 Expected: 所有检查退出码 0；原有业务断言保持通过，diff 仅涉及注释、文档字符串和空标题。`mcp.py`、`observation.py`、`adb.py` 都去掉 shebang 和 coding。
 
-- [ ] **Step 4: 精确暂存并 Commit**
+- [x] **Step 4: 精确暂存并 Commit**
 
 ```powershell
 git add tvuitree/domain/observation.py tvuitree/domain/component.py tvuitree/domain/screenshot.py tvuitree/domain/tree/models.py tvuitree/domain/visible.py tvuitree/infrastructure/adb.py tvuitree/infrastructure/image.py tvuitree/infrastructure/device_config.py tvuitree/infrastructure/snapshot.py tvuitree/application/connection.py tvuitree/application/observation.py tvuitree/application/screenshot.py tvuitree/interfaces/mcp.py
@@ -256,7 +256,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>
 - Consumes: Task 4 创建的第 12 节测试组、Task 3 保留的 `_anomaly(..., anomalies)` 必传列表签名
 - Produces: 上表「旧 → 新」中除 `pick_block` / `clip_to_chain` / `run_align` / `build_unified` / `JsonNode` 以外的重命名（那些在 Task 3–5）
 
-- [ ] **Step 1: 追加会失败的导入断言**
+- [x] **Step 1: 追加会失败的导入断言**
 
 在第 12 节末尾加：
 
@@ -276,13 +276,13 @@ t.ok(not hasattr(json_io, "_emit") and not hasattr(json_io, "_load_full"),
      "json_io 不再导出 _emit / _load_full")
 ```
 
-- [ ] **Step 2: 跑自检，确认新断言失败**
+- [x] **Step 2: 跑自检，确认新断言失败**
 
 Run: `.\.venv\Scripts\python.exe tests/selftest_tree.py`
 
 Expected: 退出码 1；失败信息为 record_anomaly / node_summary / to_pixel / emit_json 不存在；Task 3–4 的行为测试仍通过，汇总正常输出。
 
-- [ ] **Step 3: 重命名（只改名字，不改逻辑）**
+- [x] **Step 3: 重命名（只改名字，不改逻辑）**
 
 `models.py`：`def _anomaly(...)` 改为 `def record_anomaly(...)`。
 
@@ -326,13 +326,13 @@ from .json_io import load_full_json
 
 将 run_shot 的 `_load_full(args.json_path)` 改为 `load_full_json(args.json_path)`；`image.load_tree` 不依赖任何 interfaces 导入。不要遗留仅测试还在调用旧 JSON 名字的情况。
 
-- [ ] **Step 4: 执行完整检查**
+- [x] **Step 4: 执行完整检查**
 
 Run: 本计划「每次提交前的完整检查」中的整块命令。
 
 Expected: 退出码 0。`pyflakes` 无未定义名。
 
-- [ ] **Step 5: 精确暂存并 Commit**
+- [x] **Step 5: 精确暂存并 Commit**
 
 ```powershell
 git add tvuitree/domain/tree/models.py tvuitree/domain/tree/parsing.py tvuitree/domain/observation.py tvuitree/domain/visible.py tvuitree/domain/screenshot.py tvuitree/infrastructure/image.py tvuitree/interfaces/json_io.py tvuitree/interfaces/observe.py tvuitree/interfaces/tree.py tvuitree/interfaces/visible.py tvuitree/interfaces/shot.py tests/selftest_tree.py
@@ -366,7 +366,7 @@ git commit -m "Rename cross-module helpers to public names"
   - 不再有 `models.PARSE_ANOMALIES`
   - `send_sequence(...) -> Iterator[tuple[str, str | None]]`
 
-- [ ] **Step 1: 先写第 12 节的签名断言（调用点先不要改）**
+- [x] **Step 1: 先写第 12 节的签名断言（调用点先不要改）**
 
 自检是顺序脚本：断言失败只记一笔，**未捕获的 TypeError 会让整场退出、第 12 节跑不到**。所以这一步只改第 12 节和**不改变调用参数个数**的第 1 节。`clip_to_chain` / `run_align` / `build_unified` 的调用点留到 Step 3 和生产代码一起改。
 
@@ -436,13 +436,13 @@ t.ok(hints.get("return") == Iterator[tuple[str, str | None]]
 
 顶部已有 `from tvuitree.application import input as remote_input`，不要再导一次。`get_type_hints` 会求值注解；`Iterator[tuple[str, str | None]]` 与现在的 `list[...]` 不相等即可。
 
-- [ ] **Step 2: 跑自检，确认失败原因是旧签名 / 全局仍在**
+- [x] **Step 2: 跑自检，确认失败原因是旧签名 / 全局仍在**
 
 Run: `.\.venv\Scripts\python.exe tests/selftest_tree.py`
 
 Expected: 退出码 1。第 1 节已绿（局部列表）。第 12 节失败：`PARSE_ANOMALIES` 仍在、`clip_to_chain` 参数含 `screen`、`run_align` 参数含 `quiet`、`build_unified` 参数含 `st`、`send_sequence` 返回类型仍是 `list`。第 2 / 4 节仍按旧签名调用，不能 TypeError。不要在这一步改生产代码去让测试“凑绿”。
 
-- [ ] **Step 3: 改生产代码**
+- [x] **Step 3: 改生产代码**
 
 `matching.py` `clip_to_chain`：
 
@@ -521,13 +521,13 @@ def send_sequence(adb, keys: list[str], *, delay: float = 0.5, repeat: int = 1,
 
 不要从 `typing` 再导一次 `Iterator`（3.10 里 `typing.Iterator` 仍可用，但本仓库新代码用 `collections.abc`）。
 
-- [ ] **Step 4: 执行完整检查**
+- [x] **Step 4: 执行完整检查**
 
 Run: 本计划「每次提交前的完整检查」中的整块命令。
 
 Expected: 退出码 0。第 1 节畸形 dump 仍报 bounds / 缩进告警。
 
-- [ ] **Step 5: 精确暂存并 Commit**
+- [x] **Step 5: 精确暂存并 Commit**
 
 ```powershell
 git add tvuitree/domain/tree/matching.py tvuitree/domain/tree/capture.py tvuitree/domain/tree/parsing.py tvuitree/domain/tree/models.py tvuitree/domain/tree/output.py tvuitree/application/observation.py tvuitree/application/input.py tests/selftest_tree.py
@@ -560,7 +560,7 @@ git commit -m "Drop unused parameters and the mutable parse-anomaly global"
   - `_emit` 按 UTF-8 字节数报告文件大小，含末尾 LF；Task 2 后名为 emit_json。
   - pydantic 与 mcp 的导入在同一 try 内，缺任一个依赖时给相同安装提示。
 
-- [ ] **Step 1: 添加库异常契约和 CLI 错误路径测试**
+- [x] **Step 1: 添加库异常契约和 CLI 错误路径测试**
 
 在第 7 节已有 load_tree 成功读取断言之后插入下列完整用例。SystemExit 只在测试中显式捕获，生产代码不通过捕获 BaseException 来掩盖问题。CLI 用子进程隔离退出行为，并提供 --image，因此不会进入设备连接路径。
 
@@ -632,7 +632,7 @@ t.ok(payload.endswith(b"\n") and b"\r\n" not in payload,
      "JSON 文件保留现有 LF 写入约定")
 ```
 
-- [ ] **Step 2: 用子进程模拟两种缺依赖条件**
+- [x] **Step 2: 用子进程模拟两种缺依赖条件**
 
 在第 12 节追加。只拦截测试子进程的 import；不卸载依赖，不启动 MCP 服务，不连接设备。
 
@@ -662,13 +662,13 @@ for blocked_dependency in ("pydantic", "mcp"):
     t.eq(proc.stdout, b"", f"缺 {blocked_dependency} 时 stdout 保持空")
 ```
 
-- [ ] **Step 3: 跑自检确认新增失败来自目标缺陷**
+- [x] **Step 3: 跑自检确认新增失败来自目标缺陷**
 
 Run: `.\.venv\Scripts\python.exe tests/selftest_tree.py`
 
 Expected: 退出码 1，最终汇总正常出现；库缺文件/损坏 JSON 捕获到 SystemExit，数组/null 捕获到 AttributeError，数组/null CLI 有 traceback，UTF-8 字节计数和缺 pydantic 提示断言失败。缺 mcp 的提示和 JSON 对象形状校验当前就可能通过。不得出现未捕获 AttributeError/TypeError/SystemExit 使整场中断。
 
-- [ ] **Step 4: 最小修复生产入口**
+- [x] **Step 4: 最小修复生产入口**
 
 `json_io._emit` 保持 open 的 `encoding="utf-8", newline="\n"` 与写入内容，将计数表达式改为：
 
@@ -714,13 +714,13 @@ except ImportError as exc:
 
 此阶段不重命名 JSON 入口、不改变截图坐标、MCP schema 或调用时序；Task 2 再同步公开名。
 
-- [ ] **Step 5: 执行完整检查并审查金样差异**
+- [x] **Step 5: 执行完整检查并审查金样差异**
 
 Run: 本计划「每次提交前的完整检查」中的整块命令。有现成金样时执行末尾「金样审查」步骤，默认保留旧 base，允许的差异只有 JSON 输出提示里的实际字节数。
 
 Expected: 所有检查退出码 0；六类无效 JSON 输入和两类缺依赖条件均通过；正常 JSON/PNG 金样逐字节一致。
 
-- [ ] **Step 6: 精确暂存并 Commit**
+- [x] **Step 6: 精确暂存并 Commit**
 
 ```powershell
 git add tvuitree/infrastructure/image.py tvuitree/interfaces/json_io.py tvuitree/interfaces/shot.py tvuitree/interfaces/mcp.py tests/selftest_tree.py
@@ -758,7 +758,7 @@ git commit -m "Fix shot JSON errors, UTF-8 size reporting, and MCP dependency hi
   - `interfaces/tree.py` 用一个递归函数数节点
   - 保留 Task 4 的 pydantic/mcp 共同 try 与缺依赖行为测试
 
-- [ ] **Step 1: 写失败断言**
+- [x] **Step 1: 写失败断言**
 
 第 12 节追加（`inspect` 在 Task 3 已导入则不要重复；`mcp as mcp_interface` 已在第 8 节导入，这里用它或再 `from tvuitree.interfaces import mcp as mcp_mod` 一次均可，不要混用两个别名）：
 
@@ -793,13 +793,13 @@ FOCUS_NODE_FIELDS 用 getattr(..., None)：属性不存在时得到 None，由 t
 
 这一步**不要**改第 7 节 `screenshot.Node(...)`：`JsonNode` 还不存在，裸改构造名会 `AttributeError` 整场退出。调用点留到 Step 3。
 
-- [ ] **Step 2: 跑自检，确认失败**
+- [x] **Step 2: 跑自检，确认失败**
 
 Run: `.\.venv\Scripts\python.exe tests/selftest_tree.py`
 
 Expected: 退出码 1，JsonNode / pick_block / drawn 尚不存在，FOCUS_NODE_FIELDS 的实际值是 None，失败均进入最终汇总，不出现未捕获 AttributeError。CLI 与 MCP 尚未引用 DEFAULT_MAX_NODES；默认数值等于 80 的断言当前就会绿，不能单独当变红信号。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `screenshot.py`：`class Node` 改名为 `class JsonNode`；`collect` / `compare_focus` / `flatten` / `is_actionable` 的类型和构造全部改用 `JsonNode`。`walk` 保持，它遍历的是 dict。同一提交里把 `tests/selftest_tree.py` 约 915 行 `screenshot.Node` 改成 `screenshot.JsonNode`。
 
@@ -869,13 +869,13 @@ Create `tvuitree/domain/__init__.py`：
 """TV UI observation domain layer."""
 ```
 
-- [ ] **Step 4: 执行完整检查**
+- [x] **Step 4: 执行完整检查**
 
 Run: 本计划「每次提交前的完整检查」中的整块命令。
 
 Expected: 退出码 0。第 8 节 MCP schema 仍含 `TV_IP_Address`，`max_nodes` 不在连接参数 schema 里（它是 observe_tv 自己的参数，本任务不改 schema 形状）。
 
-- [ ] **Step 5: 精确暂存并 Commit**
+- [x] **Step 5: 精确暂存并 Commit**
 
 ```powershell
 git add tvuitree/domain/screenshot.py tvuitree/domain/tree/parsing.py tvuitree/domain/tree/models.py tvuitree/domain/tree/output.py tvuitree/infrastructure/snapshot.py tvuitree/interfaces/mcp.py tvuitree/interfaces/cli.py tvuitree/interfaces/tree.py tvuitree/domain/__init__.py tests/selftest_tree.py
@@ -903,7 +903,7 @@ git commit -m "Disambiguate Node types and share observation defaults"
 - Consumes: 现有 infrastructure/image.py、application/input.py；Task 1 已整理的注释习惯
 - Produces: 测试说明与 AGENTS 和代码分层一致；既有职责边界断言的条件保持原样，不新增 AGENTS 精确句子断言
 
-- [ ] **Step 1: 更新现有测试说明与夹具注释**
+- [x] **Step 1: 更新现有测试说明与夹具注释**
 
 将原说明字符串换成当前模块路径，比较的条件不变：
 
@@ -919,7 +919,7 @@ t.ok("build_full_json" not in input_src, "application/input.py 与取树无关")
 
 夹具注释 tv_shot「祖先链溢出容器」改为画框「祖先链溢出容器」；captured_at 的说明改为「要有采集时刻（shot 靠它判断截图与取树是否同时刻）」。这些是测试消息，不制造失败断言。
 
-- [ ] **Step 2: 更新 AGENTS.md 的注释约定**
+- [x] **Step 2: 更新 AGENTS.md 的注释约定**
 
 在 Structure 第一段之后插入：
 
@@ -929,7 +929,7 @@ Comment language: module docstrings are one English line; function/class docstri
 
 只更新共享源 AGENTS.md，CLAUDE.md 继续导入它；generator 的 tv_tree.py 与 README 历史迁移表不动。
 
-- [ ] **Step 3: 完整检查与最终 diff 审查**
+- [x] **Step 3: 完整检查与最终 diff 审查**
 
 Run: 本计划「每次提交前的完整检查」整块命令。第 12 节不添加注释翻译/AGENTS 措辞断言；完整检查保持通过，既有测试条件不变，仅说明文字变化。
 
@@ -947,7 +947,7 @@ if ($LASTEXITCODE -ne 0) { throw 'offline slim failed' }
 
 有可用设备时执行一次只读 TV observe 检查，并报告采集证据与漂移状态；设备不可用不阻塞离线验收。最后按下一节复核已有金样，任何非预期差异都必须解释，不能覆盖。
 
-- [ ] **Step 4: 精确暂存并 Commit**
+- [x] **Step 4: 精确暂存并 Commit**
 
 ```powershell
 git add tests/selftest_tree.py AGENTS.md
@@ -968,7 +968,7 @@ git commit -m "Document comment language and replace legacy script names in test
 
 仅在 golden.py、base/ 及 full.json、shot_a11y.png、原始 dumpsys/a11y 夹具齐备时执行；缺任何一个，报告缺项并以完整离线自检验收，不现场造新的真机数据。现有 golden.py 会把 check 的新输出写到 now/，make 会重建整个 base/；本计划不以 make 接受差异。
 
-- [ ] **Step 1: 修改生产代码前检查原基线；修改后生成 now 并列出差异**
+- [x] **Step 1: 修改生产代码前检查原基线；修改后生成 now 并列出差异**
 
 ```powershell
 $py = '.\.venv\Scripts\python.exe'
@@ -979,7 +979,7 @@ if ($goldenExitCode -notin @(0, 1)) { throw 'golden runner failed' }
 
 退出码 1 只表示有差异，不能当成通过。修改前已经有差异时先定位，不能把旧问题归到本任务。修改后允许的变化只有 Task 4 修正 JSON 输出诊断的字节数；不要运行 make。Task 4 修复计数后的差异应在本阶段解释，后续纯整理不能增加新的差异。
 
-- [ ] **Step 2: 严格检查全部文件；只在指定 stderr 行归一化字节数**
+- [x] **Step 2: 严格检查全部文件；只在指定 stderr 行归一化字节数**
 
 以下命令只读 base/ 与 now/；所有 JSON、PNG、其余文本逐字节比较。仅 slim/keep_all/keep_gone/observe/visible 的 stderr `[out] 已写入` 行允许数字变化，并验证 now 的数字确为相应 JSON 文件的实际字节数。新文件、缺文件、stdout、返回码或其他 stderr 内容不同均失败。编码只为解析已有诊断，仍按同一编码逐处比较内容。
 
@@ -1042,11 +1042,50 @@ if ($LASTEXITCODE -ne 0) { throw 'golden difference review failed' }
 
 默认保留 base 原件，记录允许变化的文件列表与验证结果即可，不为消除预期差异刷新整套基线。若另有基线维护需求，先备份 base，再仅替换逐个审查过的诊断文本文件；JSON/PNG 不在本计划更新范围内。
 
-## Self-review
+## Plan self-review（修订时）
 
 1. **Spec coverage:** 保留原六项整理范围；本次三个 P2 问题分别由 Task 5 的安全属性读取、Task 4 的六类 JSON 错误测试、金样只读差异检查处理。共享告警与缺依赖问题的描述按当前代码纠正。
 2. **Failure-phase safety:** Task 5 新属性通过 getattr(..., None) 读取；Task 3 签名和 Task 5 JsonNode 的旧调用只在生产改动同一步迁移；Task 4 库测试显式捕获 SystemExit，CLI/MCP 缺依赖测试使用隔离子进程，全部失败能到达最终汇总。
 3. **Execution and types:** 顺序 4 → 3 → 2 → 5 → 1 → 6；Task 4 使用旧 JSON 名，Task 3 使用旧 _anomaly 名，Task 2 再统一重命名生产与测试调用。第 12 节由 Task 4 创建，_read/inspect/json_io 的来源明确；timing._emit 不变。
 4. **Validation:** 每次提交前均运行 py_compile、pyflakes、完整自检、--help、--prune-list、diff --check，并检查每条退出码。精确暂存并审查 staged diff；纯注释/文案不添加逐字源码断言。638 是修订前基线，不是实施后的预计断言数。
 5. **Golden contract:** check 生成 now，base 保留；JSON/PNG/其余输出逐字节一致，仅明确的 stderr 字节计数允许变化且核对实际文件长度。不存在以 make 消除未知差异的步骤。golden.py 的 pick_block/getattr 回退已可兼容 Task 5，无须改其业务逻辑。
-6. **Scope:** 此次只修改本计划；没有运行计划内提交、生产改动或基线覆盖。config、设备地址、外部 push/merge 不进入计划修订。
+6. **Scope:** 修订计划阶段只修改本文件；随后经用户明确授权实施下列六个阶段。config、设备地址、外部 push/merge 未进入改动范围，金样 base 未覆盖。
+
+
+## Execution record — 2026-10-02
+
+执行顺序 4 → 3 → 2 → 5 → 1 → 6；当前 main 原地执行。计划修订检查点：`396feac`。
+
+| Task | 提交 | 完整自检断言 | 验证 |
+|---|---|---:|---|
+| 4 JSON 错误、字节计数、缺依赖提示 | `958b035` | 688 | RED → GREEN；完整检查全部 exit 0 |
+| 3 参数与解析默认状态 | `7e81718` | 697 | RED → GREEN；完整检查全部 exit 0 |
+| 2 跨模块公开命名 | `4318eb5` | 705 | RED → GREEN；完整检查全部 exit 0 |
+| 5 类型、属性、默认值和计数 | `436f924` | 714 | RED → GREEN；完整检查全部 exit 0 |
+| 1 注释整理 | `6059a6a` | 714 | 排除文档字符串后的 AST 相同；完整检查全部 exit 0 |
+| 6 文档与旧名称说明 | `fe3e2a1` | 714 | 测试条件保持原样；完整检查全部 exit 0 |
+
+每阶段完整检查包括项目虚拟环境的 py_compile、pyflakes、selftest_tree.py、main.py --help、tree --prune-list 和 git diff --check。提交前精确暂存并检查 staged diff。
+
+离线 observe、visible、slim 入口均 exit 0。原始金样基线预检 19/19 完全一致；最终全部 JSON/PNG 逐字节一致，五个文本诊断文件 keep_all.txt、keep_gone.txt、observe.txt、slim.txt、visible.txt 只出现预期的 UTF-8 字节计数差异，且逐个验证等于实际 JSON 文件长度（含末尾 LF）。其他 stdout、stderr、返回码与文件集合不变；base 原件保留，没有运行 make。
+
+真机：使用既有配置执行只读 observe，因无法连接设备返回 2；未取得当前 TV 采集结果，不声称验证了当前设备的焦点或漂移状态。本机地址及采集产物未提交。
+
+执行裁决（按发生顺序）：
+
+1. 按用户批准计划在 main 原地执行，不建立工作树；代价是本地 main 直接包含阶段提交，仍可通过 Git 恢复。没有推送或合并。
+2. 文档给定的 Bash 不可用，使用本计划忽略目录内的 Python 等价脚本生成 brief、记录 BASE、台账和完整校验；风险是辅助流程可移植性，任务范围和验证内容保持原样。
+3. Task 4 追加 README 中的 shot 错误与字节计数说明，满足 AGENTS 的接口变化文档要求；错误说明可能误导用户，已用新增边界测试核对。
+4. task-done 使用源文件 SHA256 确认成功的提交前完整校验仍对应相同文件，避免只因 commit 元数据改变重复测试；风险是漏掉源变化，因此指纹变化立即拒绝完成记录并要求重新校验。
+5. Task 6 同步清理第 7 节相邻的另外两处旧 tv_shot 标签；仅注释/断言消息变化，断言条件不变，风险限于测试说明准确性。
+
+最终独立 Review：由一次全新上下文的 reviewer 审查 `396feac..fe3e2a1` 全部 28 个文件、实际调用点、计划与台账。Critical / Important / Minor 均无；判定可以交付。审查独立核对 40 个校验指纹全部匹配最终完整检查，Task 1 的 13 个文件去除 docstring 后 AST 相同，原金样严格比对通过；纯内存边界检查确认六类 shot 输入错误均在访问设备、图片或 render 前返回 1，短 flag 字符串的新属性与原判定一致。未重复派发审查。
+
+对 reviewer 的 Declined to judge 项逐项裁决（延续上述顺序）：
+
+6. 当前真机采集与漂移状态暂不作结论：无法连接设备，用户得到的是明确的离线验收而非未证实的现场结论；错误地外推到真机会漏掉设备特有问题。
+7. 不把本次六类文件/根结构错误修复扩大为深层非法节点、异常 captured_at 的完整 schema 容错：这些路径未由本次新增或改变，shot 仍要求工具生成的 full JSON；代价是人为篡改深层数据时现有异常风险仍在，不能据此声称任意 JSON 均安全。
+8. 不保留仓库外对旧内部函数名和死参数签名的兼容层：批准计划要求统一公开名并删除死参数，仓内生产、测试、脚本和金样调用点已核对；代价是第三方若直接调用这些内部入口须同步迁移。
+9. 不扩展配置追踪策略、依赖拆分/版本固定、pytest 迁移：批准计划明确列为另行任务，现有差异未触及；代价是原有维护限制仍在，后续需求需单独处理。
+
+Deferred minors：无。最终没有遗留 Critical / Important 修复项。按批准范围保留当前 main 本地提交，无 push/merge；只清理本计划的忽略临时执行目录，其他计划及原金样保留。
