@@ -111,6 +111,14 @@ class Node:
         return bool(self.flags1) and self.flags1[6] == "C"
 
     @property
+    def drawn(self) -> bool:
+        return bool(self.flags1) and len(self.flags1) > 3 and self.flags1[3] == "D"
+
+    @property
+    def context_clickable(self) -> bool:
+        return bool(self.flags1) and len(self.flags1) > 8 and self.flags1[8] == "X"
+
+    @property
     def long_clickable(self) -> bool:
         return bool(self.flags1) and self.flags1[7] == "L"
 

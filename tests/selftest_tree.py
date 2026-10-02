@@ -927,7 +927,7 @@ for short, full in remote_input.KEY_ALIASES.items():
 t.not_has(remote_input.KEY_ALIASES, "KEYCODE_DPAD_DOWN", "别名表里只放不带前缀的键码名")
 
 # tv_shot：从树 JSON 取两种坐标 + 祖先链溢出告警
-sn = screenshot.flatten([screenshot.Node(n) for n in OBJ["tree"]])
+sn = screenshot.flatten([screenshot.JsonNode(n) for n in OBJ["tree"]])
 t.eq(len(sn), EXP_TREE_NODES, "tv_shot 能把整棵树铺平成节点")
 g = [n for n in sn if n["resource_id"] == "com.demo:id/gamma"][0]
 a = [n for n in sn if n["resource_id"] == "com.demo:id/alpha"][0]
@@ -2118,6 +2118,30 @@ t.ok(hasattr(json_io, "emit_json") and hasattr(json_io, "load_full_json"),
      "JSON 读写是公开函数")
 t.ok(not hasattr(json_io, "_emit") and not hasattr(json_io, "_load_full"),
      "json_io 不再导出 _emit / _load_full")
+
+from tvuitree.domain.observation import DEFAULT_MAX_NODES
+from tvuitree.interfaces.cli import build_parser
+from tvuitree.interfaces import mcp as mcp_mod
+
+mcp_src = _read("tvuitree/interfaces/mcp.py")
+t.ok(hasattr(screenshot, "JsonNode"), "JSON 树包装类叫 JsonNode")
+t.ok(not hasattr(screenshot, "Node"), "screenshot 不再导出与 dumpsys Node 撞名的 Node")
+t.ok(hasattr(parsing, "pick_block") and not hasattr(parsing, "pick_block_ex"),
+     "选 ACTIVITY 段的函数叫 pick_block")
+t.ok(hasattr(models.Node, "drawn") and hasattr(models.Node, "context_clickable"),
+     "drawn / context_clickable 是 dumpsys Node 的派生属性")
+cli_src = _read("tvuitree/interfaces/cli.py")
+t.ok("DEFAULT_MAX_NODES" in cli_src,
+     "CLI --max-nodes 默认值引用 DEFAULT_MAX_NODES，不另写 80")
+t.ok("max_nodes: int = DEFAULT_MAX_NODES" in mcp_src,
+     "MCP observe_tv.max_nodes 默认值引用同一常量")
+t.eq(build_parser().parse_args(["observe"]).max_nodes, DEFAULT_MAX_NODES,
+     "解析后的 CLI 默认值等于 DEFAULT_MAX_NODES")
+t.eq(inspect.signature(mcp_mod.observe_tv).parameters["max_nodes"].default,
+     DEFAULT_MAX_NODES, "运行时 MCP 默认值等于同一常量")
+t.eq(getattr(mcp_mod, "FOCUS_NODE_FIELDS", None),
+     ("class", "resource_id", "package", "bounds", "bounds_kind", "source"),
+     "焦点压缩字段只定义一次")
 
 # ================================================================== 收尾
 

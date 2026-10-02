@@ -10,13 +10,13 @@ def walk(nodes: list, parent=None):
         yield from walk(n.get("children") or [], n)
 
 
-class Node:
+class JsonNode:
     """给 JSON 节点套一层，缓存 parent，方便做祖先链检查。"""
 
     def __init__(self, raw: dict, parent=None):
         self.raw = raw
         self.parent = parent
-        self.children = [Node(ch, self) for ch in (raw.get("children") or [])]
+        self.children = [JsonNode(ch, self) for ch in (raw.get("children") or [])]
 
     def __getitem__(self, k):
         return self.raw.get(k)
@@ -77,7 +77,7 @@ class Node:
 def flatten(roots) -> list:
     out = []
 
-    def rec(n: Node):
+    def rec(n: JsonNode):
         out.append(n)
         for ch in n.children:
             rec(ch)
@@ -87,7 +87,7 @@ def flatten(roots) -> list:
     return out
 
 
-def is_actionable(n: Node) -> bool:
+def is_actionable(n: JsonNode) -> bool:
     d = n.dumpsys()
     return bool(n["clickable"] or n["focusable"] or n["focused"]
                 or d.get("clickable") or d.get("focusable"))
@@ -101,8 +101,8 @@ def collect(obj: dict, draw: str, source: str) -> tuple:
 
     kind: "reading"（a11y 读数，实线红） / "derived"（dumpsys 派生，虚线蓝）
     """
-    all_nodes = (flatten([Node(n) for n in obj.get("tree") or []])
-                 + flatten([Node(n) for n in obj.get("dumpsys_only") or []]))
+    all_nodes = (flatten([JsonNode(n) for n in obj.get("tree") or []])
+                 + flatten([JsonNode(n) for n in obj.get("dumpsys_only") or []]))
     if draw == "focus":
         picked = [n for n in all_nodes if n["focused"]]
     elif draw == "actionable":
@@ -144,7 +144,7 @@ def compare_focus(obj: dict) -> list:
     这种偏移就会被判成「缩放动效一致」—— 恰好把要查的问题掩盖掉。
     """
     lines = []
-    for n in flatten([Node(x) for x in obj.get("tree") or []]):
+    for n in flatten([JsonNode(x) for x in obj.get("tree") or []]):
         if not n["focused"]:
             continue
         a, d = n.rect_a11y(), n.rect_dumpsys()

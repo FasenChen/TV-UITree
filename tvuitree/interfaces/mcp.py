@@ -20,7 +20,7 @@ from tvuitree.application.connection import (
 )
 from tvuitree.application.observation import collect_full_json, collect_observation, collect_visible
 from tvuitree.application.screenshot import render_focus_png
-from tvuitree.domain.observation import error_observation
+from tvuitree.domain.observation import DEFAULT_MAX_NODES, error_observation
 from tvuitree.infrastructure.image import capture
 from tvuitree.interfaces.timing import tool_timing
 
@@ -35,6 +35,10 @@ except ImportError as exc:  # pragma: no cover - depends on optional runtime dep
 
 mcp = FastMCP("tv-uitree")
 FOCUS_SCREENSHOT_DIR = Path(__file__).resolve().parents[2] / "_temp" / "focus_screenshots"
+FOCUS_NODE_FIELDS = (
+    "class", "resource_id", "package", "bounds",
+    "bounds_kind", "source",
+)
 
 
 def _save_focus_screenshot(png: bytes) -> str:
@@ -133,10 +137,7 @@ def _focus_info(focus: dict, full_json: Optional[dict] = None) -> dict:
         if not isinstance(node, dict):
             candidates = focus.get("candidates") or []
             node = candidates[0] if candidates else {}
-        fields = (
-            "class", "resource_id", "package", "bounds",
-            "bounds_kind", "source",
-        )
+        fields = FOCUS_NODE_FIELDS
         compact_node = {key: node[key] for key in fields if key in node}
         compact_node.update(_focus_labels(_raw_node(full_json, node), node))
         return {
@@ -144,10 +145,7 @@ def _focus_info(focus: dict, full_json: Optional[dict] = None) -> dict:
             "node": compact_node,
         }
     if status == "ambiguous":
-        fields = (
-            "class", "resource_id", "package", "bounds",
-            "bounds_kind", "source",
-        )
+        fields = FOCUS_NODE_FIELDS
         candidates = [
             {
                 **{key: node[key] for key in fields if key in node},
@@ -275,7 +273,7 @@ def observe_tv(
     adb: Optional[str] = None,
     no_connect: bool = False,
     no_dumpsys: bool = False,
-    max_nodes: int = 80,
+    max_nodes: int = DEFAULT_MAX_NODES,
 ) -> dict:
     """读取当前 TV 焦点、精简页面节点和 R0–R3 证据。"""
     with tool_timing("observe_tv") as timer:

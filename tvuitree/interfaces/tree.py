@@ -57,13 +57,7 @@ def _summary(obj: dict, out_path: Optional[str]) -> None:
 
 def _tree_size(nodes: list) -> int:
     """整棵树的节点数（含后代）。"""
-    return sum(1 + _desc_count(n) for n in nodes)
-
-
-def _desc_count(node: dict) -> int:
-    """后代数量（不含自身）。"""
-    return sum(1 + _desc_count(ch) for ch in (node.get("children") or []))
-
+    return sum(1 + _tree_size(n.get("children") or []) for n in nodes)
 
 
 def _report_anomalies(items: list) -> None:

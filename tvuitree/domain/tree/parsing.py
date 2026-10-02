@@ -120,7 +120,7 @@ def parse_dumpsys_top(raw: str, anomalies: Optional[list] = None) -> list:
     return blocks
 
 
-def pick_block_ex(blocks: list, component: Optional[str]) -> tuple:
+def pick_block(blocks: list, component: Optional[str]) -> tuple:
     """挑出与前台窗口对应的 ACTIVITY 段，返回 (block, note)；note 为 None 表示精确匹配。
 
     背景（实测）：`dumpsys activity top` 只输出**承载 Activity 的窗口**的 View 树。

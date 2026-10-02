@@ -6,6 +6,8 @@ import argparse
 import logging
 from typing import Optional
 
+from tvuitree.domain.observation import DEFAULT_MAX_NODES
+
 from .connection import add_conn_args
 from .terminal import setup_console
 from .tree import run_tree
@@ -23,8 +25,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_conn_args(observe)
     observe.add_argument("--from-json", metavar="FILE", help="从已有 full JSON 离线观察")
     observe.add_argument("--out", metavar="FILE", help="将观察 JSON 写入文件")
-    observe.add_argument("--max-nodes", type=int, default=80, metavar="N",
-                         help="页面摘要节点上限（默认 80）")
+    observe.add_argument("--max-nodes", type=int, default=DEFAULT_MAX_NODES, metavar="N",
+                         help=f"页面摘要节点上限（默认 {DEFAULT_MAX_NODES}）")
     observe.add_argument("--no-dumpsys", action="store_true", help="只采集 a11y 树")
     observe.add_argument("--save-raw", metavar="DIR", help="保存采集原文")
 

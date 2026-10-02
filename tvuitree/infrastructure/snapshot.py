@@ -9,7 +9,7 @@ from typing import Optional
 from .adb import Adb, AdbError
 from .uiautomator import fetch_u2
 from tvuitree.domain.tree.capture import hierarchy_drift
-from tvuitree.domain.tree.parsing import parse_dumpsys_top, pick_block_ex
+from tvuitree.domain.tree.parsing import parse_dumpsys_top, pick_block
 
 def snapshot(adb: Adb, serial: Optional[str], save_raw: Optional[str],
              quiet: bool, use_dumpsys: bool = True,
@@ -32,7 +32,7 @@ def snapshot(adb: Adb, serial: Optional[str], save_raw: Optional[str],
         top2 = adb.exec_out(["dumpsys", "activity", "top"]).decode("utf-8", "replace")
         drift, drift_detail = hierarchy_drift(top1, top2)
         blocks = parse_dumpsys_top(top2, anomalies)
-        blk, note = pick_block_ex(blocks, win.get("component"))
+        blk, note = pick_block(blocks, win.get("component"))
         if blk is None:
             note = "dump 里没有可用的 ACTIVITY 段"
         if note and not quiet:
