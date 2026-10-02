@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import time
 
 KEY_ALIASES = {
@@ -37,7 +39,7 @@ def send_key(adb, name: str) -> str | None:
     return None
 
 
-def send_sequence(adb, keys: list[str], *, delay: float = 0.5, repeat: int = 1, sleep=time.sleep) -> list[tuple[str, str | None]]:
+def send_sequence(adb, keys: list[str], *, delay: float = 0.5, repeat: int = 1, sleep=time.sleep) -> Iterator[tuple[str, str | None]]:
     repetitions = max(1, repeat)
     for rep in range(repetitions):
         for index, key in enumerate(keys):

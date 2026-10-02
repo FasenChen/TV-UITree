@@ -416,11 +416,11 @@ BAD = "\n".join([
     "        android.widget.FrameLayout{aaa V.E...... ......ID}",
     "",
 ])
-bad_blocks = parsing.parse_dumpsys_top(BAD)
-anom = list(models.PARSE_ANOMALIES)
+bad_anom: list = []
+bad_blocks = parsing.parse_dumpsys_top(BAD, bad_anom)
 t.eq(len(bad_blocks), 1, "畸形 dump 仍能出段（不因个别行放弃整棵树）")
-t.ok(any("bounds" in w for _, _, w in anom),
-     "「有字段却没解析出 bounds」要记成解析告警", f"实际告警 {anom}")
+t.ok(any("bounds" in w for _, _, w in bad_anom),
+     "「有字段却没解析出 bounds」要记成解析告警", f"实际告警 {bad_anom}")
 BAD2 = "\n".join([
     "  ACTIVITY com.demo/.MainActivity deadbeef pid=100 userId=0",
     "    View Hierarchy:",
@@ -428,12 +428,26 @@ BAD2 = "\n".join([
     "         com.demo.T{bbb V.E...... ......ID 0,0-10,10}",
     "",
 ])
-parsing.parse_dumpsys_top(BAD2)
-t.ok(any("整数倍" in w for _, _, w in models.PARSE_ANOMALIES),
+indent_anom: list = []
+parsing.parse_dumpsys_top(BAD2, indent_anom)
+t.ok(any("整数倍" in w for _, _, w in indent_anom),
      "缩进不是 2 的倍数要记成解析告警（层级可能错位，不能默默吞掉）",
-     f"实际告警 {models.PARSE_ANOMALIES}")
+     f"实际告警 {indent_anom}")
+clean_anom: list = []
+parsing.parse_dumpsys_top(DUMPSYS, clean_anom)
+t.eq(clean_anom, [], "正常 dump 不该产生任何解析告警")
+
+first_anomalies: list = []
+second_anomalies: list = []
+parsing.parse_dumpsys_top(BAD, first_anomalies)
+first_saved = list(first_anomalies)
+parsing.parse_dumpsys_top(DUMPSYS, second_anomalies)
+t.ok(bool(first_saved), "畸形输入产生告警")
+t.eq(second_anomalies, [], "另一调用的正常输入没有告警")
+t.eq(first_anomalies, first_saved, "第二次显式解析不改写第一次告警")
+parsing.parse_dumpsys_top(BAD)
 parsing.parse_dumpsys_top(DUMPSYS)
-t.eq(models.PARSE_ANOMALIES, [], "正常 dump 不该产生任何解析告警")
+t.eq(first_anomalies, first_saved, "默认解析入口也不改写显式告警列表")
 
 
 # ================================================================== 2. 坐标与谓词
@@ -443,7 +457,7 @@ t.group("2. 坐标换算与谓词（读数 / 派生值分离）")
 gamma_v = [n for n in blk.all_nodes if n.res_id == "app:id/gamma"][0]
 t.eq(matching.absolute_bounds(gamma_v), (0, 700, 1920, 1300),
      "absolute_bounds = 沿祖先链累加（**派生值**，dump 不含 scrollX/scrollY）")
-t.eq(matching.clip_to_chain(gamma_v, None), (0, 700, 1920, 1080),
+t.eq(matching.clip_to_chain(gamma_v), (0, 700, 1920, 1080),
      "clip_to_chain = 再与各祖先求交 → 裁剪后的可见矩形")
 t.eq(matching.pred_visible_rect(gamma_v, SCR), (0, 700, 1920, 1080),
      "pred_visible_rect = 再与屏幕求交")
@@ -553,7 +567,7 @@ t.eq((st_uni.paired, st_uni.seq_refused), (2, []),
 
 t.group("4. 统一树与全量 JSON")
 
-uni = matching.build_unified(FX["u2_roots"], FX["view_roots"], ST, SCR)
+uni = matching.build_unified(FX["u2_roots"], FX["view_roots"], SCR)
 t.eq(len(uni), 1, "统一树只有 1 个根")
 uni_flat: list = []
 
@@ -673,7 +687,7 @@ t.eq(no_d["align_stats"]["view_nodes"], 0, "--no-dumpsys 时 view 节点数为 0
 mm_snap = {"xml": A11Y, "block": parsing.parse_dumpsys_top(DUMPSYS, [])[0],
            "pkg": "com.other", "pick_note": "fixture note", "screen": SCREEN,
            "drift": False, "drift_detail": None}
-mm_roots, mm_views, mm_st = capture.run_align(mm_snap, True)
+mm_roots, mm_views, mm_st = capture.run_align(mm_snap)
 mm = tree_output.build_full_json(mm_roots, mm_views, {"version": "x", "info": {}},
                                  {}, SCREEN, WIN, mm_st, mm_snap["pkg"], mm_snap)
 t.ok(mm["align_stats"]["align_skipped"], "包名不一致时写明跳过配对")
@@ -705,7 +719,7 @@ nest_snap = {
         "",
     ]), [])[0],
 }
-nest_roots, nest_views, nest_st = capture.run_align(nest_snap, True)
+nest_roots, nest_views, nest_st = capture.run_align(nest_snap)
 nest = tree_output.build_full_json(nest_roots, nest_views, {"version": "x", "info": {}},
                                    {}, SCREEN, WIN, nest_st, PKG, nest_snap)
 t.eq(nest_st.by_reason, {"geom": 1}, "两个 view 根时只有子节点靠 R1 配上")
@@ -2073,6 +2087,23 @@ for blocked_dependency in ("pydantic", "mcp"):
     t.ok(b"Traceback" not in proc.stderr,
          f"缺 {blocked_dependency} 时无 traceback", repr(proc.stderr))
     t.eq(proc.stdout, b"", f"缺 {blocked_dependency} 时 stdout 保持空")
+
+t.ok(not hasattr(models, "PARSE_ANOMALIES"),
+     "解析告警列表由调用方传入，不再放模块全局")
+import inspect
+t.eq(list(inspect.signature(matching.clip_to_chain).parameters), ["node"],
+     "clip_to_chain 不再接收未使用的 screen")
+t.eq(list(inspect.signature(capture.run_align).parameters), ["snap"],
+     "run_align 不再接收未使用的 quiet")
+t.eq(list(inspect.signature(matching.build_unified).parameters),
+     ["u2_roots", "view_roots", "screen"],
+     "build_unified 不再接收未使用的 AlignStats")
+from typing import get_type_hints
+from collections.abc import Iterator
+hints = get_type_hints(remote_input.send_sequence)
+t.ok(hints.get("return") == Iterator[tuple[str, str | None]]
+     or str(hints.get("return")).startswith("collections.abc.Iterator"),
+     "send_sequence 的返回类型是 Iterator，不是 list")
 
 # ================================================================== 收尾
 

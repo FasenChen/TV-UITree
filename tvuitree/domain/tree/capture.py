@@ -30,14 +30,10 @@ def hierarchy_drift(raw_a: str, raw_b: str) -> tuple:
         if x != y:
             return True, (f"第 {i + 1} 行不同：\n      旧 {x.strip()[:120]}\n"
                           f"      新 {y.strip()[:120]}")
-    return True, "内容不同（顺序差异）"
+    raise AssertionError("hierarchy_drift: equal-length lists compared unequal")
 
 
-def _flat(roots) -> list:
-    return list(iter_nodes(roots))
-
-
-def run_align(snap: dict, quiet: bool = False) -> tuple:
+def run_align(snap: dict) -> tuple:
     u2_roots = parse_u2_xml(snap["xml"])
     view_roots = snap["block"].roots if snap["block"] else []
 
@@ -47,7 +43,7 @@ def run_align(snap: dict, quiet: bool = False) -> tuple:
     if u2_roots and view_roots:
         up = u2_roots[0].package
         if up and snap["pkg"] and up != snap["pkg"]:
-            u_nodes, v_nodes = u2_all(u2_roots), _flat(view_roots)
+            u_nodes, v_nodes = u2_all(u2_roots), list(iter_nodes(view_roots))
             st = AlignStats(a11y_nodes=len(u_nodes), view_nodes=len(v_nodes))
             st.align_skipped = (
                 f"a11y 根节点自报 package={up}，与选中的 dumpsys 段 package={snap['pkg']} "

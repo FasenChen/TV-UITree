@@ -62,13 +62,9 @@ MATCH_FOCUS = "focus"
 MATCH_SEQ = "seq"
 
 # 解析异常记录：形如 (行号, 原文, 原因)。有内容就说明「有数据没读出来」。
-PARSE_ANOMALIES: list = []
-
-
-def _anomaly(lineno: int, text: str, why: str, anomalies: Optional[list] = None) -> None:
-    target = PARSE_ANOMALIES if anomalies is None else anomalies
-    if len(target) < 50:
-        target.append((lineno, text.strip()[:160], why))
+def _anomaly(lineno: int, text: str, why: str, anomalies: list) -> None:
+    if len(anomalies) < 50:
+        anomalies.append((lineno, text.strip()[:160], why))
 # ------------------------------------------------------------------ 数据模型
 
 

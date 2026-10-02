@@ -24,7 +24,7 @@ def collect_full_json(*, adb, serial: Optional[str], save_raw: Optional[str] = N
             "dumpsys 里没有可用的 ACTIVITY 段，拿不到补充源。"
             "（若确认不需要补充源，用 --no-dumpsys）"
         )
-    u2_roots, view_roots, stats = run_align(snap, quiet)
+    u2_roots, view_roots, stats = run_align(snap)
     full = build_full_json(
         u2_roots, view_roots, snap["u2_meta"], snap["dev"], snap["screen"],
         snap["win"], stats, snap["pkg"], snap,

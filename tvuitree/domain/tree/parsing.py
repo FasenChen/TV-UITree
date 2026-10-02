@@ -7,7 +7,7 @@ from typing import Iterable, Optional
 from tvuitree.domain.component import normalize_component
 from .models import (
     ACT_RE, A11Y_BOUNDS_RE, BOUNDS_RE, DUMP_INDENT_UNIT, FLAGS_RE, NODE_RE,
-    NODE_RE_POST_NAME, PARSE_ANOMALIES, RES_RE, VH_RE, Block, Node, U2Node, _anomaly,
+    NODE_RE_POST_NAME, RES_RE, VH_RE, Block, Node, U2Node, _anomaly,
 )
 
 # ------------------------------------------------------------------ 解析 dumpsys 视图树
@@ -45,9 +45,9 @@ def parse_node_line(text: str, lineno: int, indent: int,
             elif RES_RE.match(t):
                 n.res_id = t
             i += 1
-        if n.bounds is None:
+        if n.bounds is None and anomalies is not None:
             _anomaly(lineno, text, f"该行有字段但没解析出 bounds：{rest!r}", anomalies)
-    elif m.group("vhash"):
+    elif m.group("vhash") and anomalies is not None:
         _anomaly(lineno, text, "有 {hash} 但后面没有任何字段", anomalies)
     return n
 
@@ -77,7 +77,7 @@ def build_tree(items: list, base_indent: int) -> tuple:
 
 def parse_dumpsys_top(raw: str, anomalies: Optional[list] = None) -> list:
     """解析 `dumpsys activity top` 输出 → [Block]"""
-    target = PARSE_ANOMALIES if anomalies is None else anomalies
+    target: list = [] if anomalies is None else anomalies
     target.clear()
     lines = raw.splitlines()
     blocks: list = []

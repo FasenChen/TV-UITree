@@ -53,7 +53,7 @@ def _clip_ancestors(node: Node) -> Optional[tuple]:
     return r
 
 
-def clip_to_chain(node: Node, screen: Optional[tuple]) -> Optional[tuple]:
+def clip_to_chain(node: Node) -> Optional[tuple]:
     return _clip_ancestors(node)
 
 
@@ -151,8 +151,7 @@ def _align_children(u: U2Node, v: Node, pkg: Optional[str],
                 s += ways[i - 1][j - 1]
             ways[i][j] = CAP if s >= CAP else s
     if ways[m][n] != 1:
-        if U and V:
-            st.seq_refused.append((v, u, "无解" if ways[m][n] == 0 else "多解（歧义）"))
+        st.seq_refused.append((v, u, "无解" if ways[m][n] == 0 else "多解（歧义）"))
         return
 
     i, j = m, n
@@ -185,7 +184,7 @@ def align(u2_roots: list, view_roots: list, pkg: Optional[str],
     st.view_nodes = len(v_nodes)
 
     pred = {id(v): pred_visible_rect(v, screen) for v in v_nodes}
-    pred_noscreen = {id(v): clip_to_chain(v, None) for v in v_nodes}
+    pred_noscreen = {id(v): clip_to_chain(v) for v in v_nodes}
 
     paired_u, paired_v = {}, {}
 
@@ -357,13 +356,13 @@ def geom_of(u: U2Node, screen: Optional[tuple]) -> str:
         return "na"
     if av == u.bounds:
         return "exact"
-    if (clip_to_chain(u.view, None) == u.bounds
+    if (clip_to_chain(u.view) == u.bounds
             or pred_visible_rect(u.view, screen) == u.bounds):
         return "clip"
     return "drift"
 
 
-def build_unified(u2_roots: list, view_roots: list, st: AlignStats,
+def build_unified(u2_roots: list, view_roots: list,
                   screen: Optional[tuple]) -> list:
     """建一体式树：a11y 树为骨架，把位次已确定的 view 独有节点插入。
 

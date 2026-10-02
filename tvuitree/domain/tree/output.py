@@ -79,7 +79,7 @@ def build_full_json(u2_roots: list, view_roots: list, u2_meta: dict, dev: dict,
             "scrollbar_h": v.scrollbar_h,
             "scrollbar_v": v.scrollbar_v,
         }
-        p_only = clip_to_chain(v, None)
+        p_only = clip_to_chain(v)
         extra["pred_visible_rect"] = list(p_only) if p_only else None
         return extra
 
@@ -91,7 +91,7 @@ def build_full_json(u2_roots: list, view_roots: list, u2_meta: dict, dev: dict,
             "resource_id_normalized": norm_res_id(n.res_id, pkg),
             "bounds_local": list(n.bounds) if n.bounds else None,
             "bounds_abs_unclipped": (lambda x: list(x) if x else None)(absolute_bounds(n)),
-            "pred_visible_rect": (lambda x: list(x) if x else None)(clip_to_chain(n, None)),
+            "pred_visible_rect": (lambda x: list(x) if x else None)(clip_to_chain(n)),
             "visible": n.visible,
             "gone": n.gone,
             "focusable": n.focusable,
@@ -138,8 +138,8 @@ def build_full_json(u2_roots: list, view_roots: list, u2_meta: dict, dev: dict,
         o["children"] = [view_only_json(ch) for ch in n.children if id(ch) in unpaired]
         return o
 
-    uni = build_unified(u2_roots, view_roots, st, _scr) if show_dumpsys else \
-        build_unified(u2_roots, [], AlignStats(), None)
+    uni = build_unified(u2_roots, view_roots, _scr) if show_dumpsys else \
+        build_unified(u2_roots, [], None)
 
     drift = bool(snap and snap.get("drift"))
     out = {
