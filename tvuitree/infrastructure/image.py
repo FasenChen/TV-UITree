@@ -1,4 +1,6 @@
-"""PNG capture and drawing backed by Pillow. 框 = 读数，逐像素对齐、不加偏移。"""
+"""PNG capture and drawing backed by Pillow."""
+
+# 画框约定：框 = 读数，逐像素对齐、不加偏移。
 
 from __future__ import annotations
 
@@ -17,7 +19,7 @@ CROSS_ARM = 12
 
 
 def focus_border_width(png_bytes: bytes) -> int:
-    """Scale the MCP focus border with the PNG height (6 px at 1080p)."""
+    """按 PNG 高度缩放 MCP 焦点线宽（1080p 时为 6 像素）。"""
     if len(png_bytes) < 24 or png_bytes[:8] != b"\x89PNG\r\n\x1a\n" or png_bytes[12:16] != b"IHDR":
         return 6
     height = int.from_bytes(png_bytes[20:24], "big")
@@ -87,7 +89,7 @@ def draw_boxes(png_bytes: bytes, boxes: list, out_path: str,
                screen: dict, width: int = 1, show_details: bool = True) -> tuple:
     """在截图上画框。返回 (画出数, 未画出数, 提示列表)。
 
-    几何约定见模块文档：**框 = 读数，逐像素对齐**；只用分辨率换算，无偏移、无容差。
+    几何约定见文件头注释：**框 = 读数，逐像素对齐**；只用分辨率换算，无偏移、无容差。
     """
     try:
         from PIL import Image, ImageDraw
@@ -175,7 +177,7 @@ def draw_boxes(png_bytes: bytes, boxes: list, out_path: str,
 
 def draw_boxes_png(png_bytes: bytes, boxes: list, screen: dict,
                    width: int = 1, show_details: bool = True) -> tuple:
-    """Draw using the shared renderer and return PNG bytes without a saved artifact."""
+    """用同一套画框逻辑渲染，返回 PNG 字节，不留下成品文件。"""
     with tempfile.TemporaryDirectory(prefix="tv-uitree-focus-") as directory:
         path = os.path.join(directory, "focus.png")
         drawn, skipped, notes = draw_boxes(

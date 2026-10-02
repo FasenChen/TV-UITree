@@ -14,7 +14,7 @@ from tvuitree.domain.tree.parsing import parse_dumpsys_top, pick_block
 def snapshot(adb: Adb, serial: Optional[str], save_raw: Optional[str],
              quiet: bool, use_dumpsys: bool = True,
              anomalies: Optional[list] = None) -> dict:
-    """同一时刻抓两棵树（先 dumpsys 后 a11y，间隔最小化并记录前后一致性）。"""
+    """连续采集两种来源：dumpsys → a11y → dumpsys，间隔尽量短，并记录前后层次的一致性。"""
     dev = {}
     try:
         dev = adb.props()

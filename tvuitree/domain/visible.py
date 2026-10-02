@@ -37,11 +37,7 @@ def _visible_labels(node: dict) -> list[str]:
 
 
 def select_visible(full_json: dict) -> dict:
-    """Summarize visible a11y controls while retaining focus and actions.
-
-    Paths refer to the original full tree; only a11y screen readings establish
-    visibility, and dumpsys geometry never becomes a claimed screen reading.
-    """
+    """按当前屏幕坐标证据给出可见控件摘要，保留焦点和可操作信息。路径仍指向原始全量树；只有 a11y 屏幕读数能主张可见，dumpsys 几何不得冒充屏幕读数。"""
     if not isinstance(full_json, dict) or not isinstance(full_json.get("tree"), list):
         raise ValueError("输入不是本工具生成的 full JSON：缺少 tree")
     screen = full_json.get("screen") or {}

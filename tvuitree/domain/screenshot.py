@@ -128,7 +128,7 @@ def collect(obj: dict, draw: str, source: str) -> tuple:
 
 
 def compare_focus(obj: dict) -> list:
-    """a11y 焦点读数 vs dumpsys 派生坐标 —— 本脚本要给出的核心对照。
+    """a11y 焦点读数 vs dumpsys 派生坐标 —— 本工具要给出的核心对照。
 
     判定只用**读数自身的算术**，不设容差、不套经验区间：
 
@@ -217,7 +217,7 @@ def scale_factors(img_w: int, img_h: int, screen: dict) -> tuple:
     """`截图像素 / 控件树坐标` 的**逐轴**换算系数；缺 wm size 时返回 (None, None)。
 
     控件树坐标基于 `wm size`（有 Override 时是 Override），截图是物理像素。
-    这是本脚本唯一允许的坐标变换 —— 纯数学换算，两轴各算各的、都不藏起来。
+    这是本工具唯一允许的坐标变换 —— 纯数学换算，两轴各算各的、都不藏起来。
     """
     sw = (screen or {}).get("width")
     sh = (screen or {}).get("height")

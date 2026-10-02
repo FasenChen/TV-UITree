@@ -40,7 +40,7 @@ def _check_port(port: object) -> int:
 def connection_options(*, TV_IP_Address: Optional[str] = None,
                        port: Optional[int] = None, adb: Optional[str] = None,
                        no_connect: bool = False) -> ConnectionOptions:
-    """Resolve explicit values over config defaults for both CLI and MCP."""
+    """显式参数覆盖 config 默认值，供 CLI 与 MCP 共用。"""
     config = device_config.load_device_config()
     address = _check_address(
         config.get("TV_IP_Address") if TV_IP_Address is None else TV_IP_Address)
@@ -55,7 +55,7 @@ def connection_options(*, TV_IP_Address: Optional[str] = None,
 
 def update_default_device(*, TV_IP_Address: str,
                           port: Optional[int] = None) -> dict:
-    """Validate and persist a new default target; other config fields stay as they are."""
+    """校验并写入新的默认目标；config 里其他字段保持原样。"""
     config = device_config.load_device_config()
     previous = {"TV_IP_Address": config.get("TV_IP_Address"), "port": config.get("port")}
     address = _check_address(TV_IP_Address)
@@ -71,7 +71,7 @@ def update_default_device(*, TV_IP_Address: str,
 
 
 def connect_device(options: ConnectionOptions, *, quiet: bool = False) -> Optional[Adb]:
-    """Return a connected device or None; presentation belongs to interfaces."""
+    """返回已连接设备或 None；文案属于 interfaces。"""
     device = Adb(resolve_adb(options.adb), options.target,
                  auto_connect=not options.no_connect)
     return device if device.connect(quiet=quiet) else None

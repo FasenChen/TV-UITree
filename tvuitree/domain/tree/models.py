@@ -34,8 +34,8 @@ NODE_RE = re.compile(
     r"(?:\{(?P<vhash>[0-9a-fA-F]+)(?P<rest>[^}]*)\})?"
     r"\s*$"
 )
-# Android 16 ViewDebug may put the optional outer name after the instance
-# block, for example DecorView{abc ...}[MainSettings].
+# Android 16 的 ViewDebug 可能把可选的外部 name 放在实例块后面，
+# 例如 DecorView{abc ...}[MainSettings]。
 NODE_RE_POST_NAME = re.compile(
     r"^(?P<indent>[ ]*)"
     r"(?P<cls>[A-Za-z_$][\w.$]*)"
@@ -87,7 +87,7 @@ class Node:
     lineno: int = 0
     # 注意：这里**没有** text / desc 字段。
     # `dumpsys activity top` 的 View 树不携带文字（ViewDebug 不调 getText()），
-    # 本工具也不做跨源回填（原因见文件头设计原则第 6 条）。
+    # 本工具也不做跨源回填：文字只以 a11y 读数为准，避免两个来源的读数被静默合成。
 
     # ---- 派生属性（全部来自 flag 位，不做猜测） ----
     @property

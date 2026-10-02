@@ -59,7 +59,7 @@ def collect_observation(*, adb=None, serial: Optional[str] = None,
 def collect_visible(*, adb=None, serial: Optional[str] = None,
                     full_json: Optional[dict] = None,
                     save_raw: Optional[str] = None, quiet: bool = False) -> dict:
-    """Return the visible tree projection from a live or saved full snapshot."""
+    """从实时采集或已保存的全量 JSON 得到可见树投影。"""
     if full_json is None:
         if adb is None:
             raise ValueError("collect_visible 需要 adb 或 full_json")

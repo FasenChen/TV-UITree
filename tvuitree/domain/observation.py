@@ -1,6 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""面向大模型的 TV 页面观察摘要与统一采集接口。"""
+"""Page observation summaries for language models."""
 
 from __future__ import annotations
 

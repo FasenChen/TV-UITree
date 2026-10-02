@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Execute ADB commands and read Android TV device metadata."""
 
 from __future__ import annotations
@@ -181,6 +179,3 @@ class Adb:
         info["component"] = (component_from_window(info["mCurrentFocus"])
                              or component_from_activity_record(info["mFocusedApp"]))
         return info
-
-
-# ---- component 字符串处理 ----

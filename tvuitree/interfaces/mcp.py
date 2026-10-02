@@ -1,11 +1,8 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""tv-uitree 的 MCP 服务。
+"""MCP tools for TV observation started with main.py mcp over stdio."""
 
-宿主通过 stdio 启动本文件。服务读取 TV 状态、完整树和截图，不发送按键；
-唯一的写操作是 set_default_device 修改 config.json 的默认设备。
-与 CLI 共用应用层采集、观察摘要和截图绘制。
-"""
+# 服务读取 TV 状态、完整树和截图，不发送按键。
+# 唯一的写操作是 set_default_device 修改 config.json 的默认设备。
+# CLI 和 MCP 共用应用层的观察与截图服务。
 
 from __future__ import annotations
 
@@ -69,7 +66,7 @@ def _connect(*, TV_IP_Address: Optional[str], port: Optional[int],
 
 
 def _raw_node(full_json: Optional[dict], node: dict) -> Optional[dict]:
-    """Resolve an observation path back into the captured full tree."""
+    """把观察结果里的 path 解析回全量树节点。"""
     if not isinstance(full_json, dict) or not isinstance(node.get("path"), str):
         return None
     try:
@@ -85,7 +82,7 @@ def _raw_node(full_json: Optional[dict], node: dict) -> Optional[dict]:
 
 
 def _focus_labels(raw: Optional[dict], summary_node: Optional[dict] = None) -> dict:
-    """Pick a short title and optional subtitle from the focused control subtree."""
+    """从焦点控件子树挑一个短标题和可选副标题。"""
     if not isinstance(raw, dict):
         labels = summary_node.get("labels") if isinstance(summary_node, dict) else None
         return {"label": labels[0]} if labels else {}
@@ -130,7 +127,7 @@ def _focus_labels(raw: Optional[dict], summary_node: Optional[dict] = None) -> d
 
 
 def _focus_info(focus: dict, full_json: Optional[dict] = None) -> dict:
-    """Return the focused node and its visible semantic label, without tree context."""
+    """返回焦点节点及其可见语义标签，不含树上下文。"""
     status = focus.get("status", "error")
     if status == "found":
         node = focus.get("node")

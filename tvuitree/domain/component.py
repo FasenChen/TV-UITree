@@ -32,6 +32,3 @@ def normalize_component(comp: Optional[str]) -> Optional[tuple]:
     if cls.startswith("."):
         cls = pkg + cls
     return (pkg, cls)
-
-
-# ---- CLI 公共参数 ----

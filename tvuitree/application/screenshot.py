@@ -22,7 +22,7 @@ def render(obj: dict, png: bytes, out_path: str, *, draw: str = "focus",
 
 
 def render_focus_png(obj: dict, png: bytes) -> tuple[bytes, dict]:
-    """Draw one red a11y focus border, or return the original PNG if ambiguous."""
+    """画一个红色 a11y 焦点框；焦点不唯一时原样返回 PNG。"""
     boxes, warnings = collect(obj, "focus", "a11y")
     if len(boxes) != 1:
         return png, {
