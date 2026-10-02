@@ -9,7 +9,7 @@ from typing import Optional
 from .terminal import C, c
 
 
-def _emit(obj: dict, out_path: Optional[str]) -> None:
+def emit_json(obj: dict, out_path: Optional[str]) -> None:
     text = json.dumps(obj, ensure_ascii=False, indent=2)
     if out_path:
         with open(out_path, "w", encoding="utf-8", newline="\n") as f:
@@ -20,7 +20,7 @@ def _emit(obj: dict, out_path: Optional[str]) -> None:
         print(text)
 
 
-def _load_full(path: str) -> dict:
+def load_full_json(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as source:
         obj = json.load(source)
     if not isinstance(obj, dict) or not isinstance(obj.get("tree"), list):

@@ -12,7 +12,7 @@ from tvuitree.domain.tree.pruning import (
 )
 from tvuitree.infrastructure.adb import AdbError
 from .connection import connect_for_cli
-from .json_io import _emit, _load_full
+from .json_io import emit_json, load_full_json
 from .terminal import C, c
 
 
@@ -98,7 +98,7 @@ def run_tree(args: argparse.Namespace) -> int:
         switches[name] = False
     if args.from_json:
         try:
-            result = _load_full(args.from_json)
+            result = load_full_json(args.from_json)
         except (OSError, ValueError, TypeError) as error:
             print(c(f"读不了 {args.from_json}：{type(error).__name__}: {error}", C.RED),
                   file=sys.stderr)
@@ -121,6 +121,6 @@ def run_tree(args: argparse.Namespace) -> int:
         _report_anomalies(result.pop("_parse_anomalies", []))
     if args.mode == "slim":
         apply_prune(result, switches)
-    _emit(result, args.out)
+    emit_json(result, args.out)
     _summary(result, args.out)
     return 0

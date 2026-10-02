@@ -2056,7 +2056,7 @@ from tvuitree.interfaces import json_io
 _buf = io.StringIO()
 _out = os.path.join(TD, "emit_zh.json")
 with contextlib.redirect_stderr(_buf):
-    json_io._emit({"tree": [], "note": "中文"}, _out)
+    json_io.emit_json({"tree": [], "note": "中文"}, _out)
 with open(_out, "rb") as source:
     payload = source.read()
 t.ok(f"（{len(payload)} 字节）" in _buf.getvalue(),
@@ -2104,6 +2104,20 @@ hints = get_type_hints(remote_input.send_sequence)
 t.ok(hints.get("return") == Iterator[tuple[str, str | None]]
      or str(hints.get("return")).startswith("collections.abc.Iterator"),
      "send_sequence 的返回类型是 Iterator，不是 list")
+
+t.ok(hasattr(models, "record_anomaly"), "跨模块的解析告警入口叫 record_anomaly")
+t.ok(not hasattr(models, "_anomaly"), "不再导出 _anomaly")
+t.ok(hasattr(domain_observation, "node_summary"), "节点摘要是公开函数")
+t.ok(not hasattr(domain_observation, "_node_summary"), "不再导出 _node_summary")
+t.ok(hasattr(screenshot, "to_pixel") and hasattr(screenshot, "scale_factors"),
+     "像素换算是公开函数")
+t.ok(not hasattr(screenshot, "_px") and not hasattr(screenshot, "_scale_factors"),
+     "不再导出 _px / _scale_factors")
+from tvuitree.interfaces import json_io
+t.ok(hasattr(json_io, "emit_json") and hasattr(json_io, "load_full_json"),
+     "JSON 读写是公开函数")
+t.ok(not hasattr(json_io, "_emit") and not hasattr(json_io, "_load_full"),
+     "json_io 不再导出 _emit / _load_full")
 
 # ================================================================== 收尾
 

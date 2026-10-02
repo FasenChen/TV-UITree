@@ -8,14 +8,14 @@ import sys
 from tvuitree.application.observation import collect_visible
 from tvuitree.infrastructure.adb import AdbError
 from .connection import connect_for_cli
-from .json_io import _emit, _load_full
+from .json_io import emit_json, load_full_json
 from .terminal import C, c
 
 
 def run_visible(args: argparse.Namespace) -> int:
     if args.from_json:
         try:
-            result = collect_visible(full_json=_load_full(args.from_json))
+            result = collect_visible(full_json=load_full_json(args.from_json))
         except (OSError, ValueError, TypeError) as error:
             print(c(f"读不了 {args.from_json}：{type(error).__name__}: {error}", C.RED),
                   file=sys.stderr)
@@ -35,7 +35,7 @@ def run_visible(args: argparse.Namespace) -> int:
         except Exception as error:
             print(c(f"采集失败：{type(error).__name__}: {error}", C.RED), file=sys.stderr)
             return 3
-    _emit(result, args.out)
+    emit_json(result, args.out)
     print(c(f"[visible] {len(result['page']['nodes'])} 个可见信息项", C.GRY),
           file=sys.stderr)
     return 0

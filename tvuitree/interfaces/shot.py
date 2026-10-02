@@ -14,11 +14,11 @@ def run_shot(args: argparse.Namespace) -> int:
     import datetime as dt
 
     from tvuitree.application.screenshot import render
-    from .json_io import _load_full
+    from .json_io import load_full_json
     from tvuitree.infrastructure.image import capture
 
     try:
-        obj = _load_full(args.json_path)
+        obj = load_full_json(args.json_path)
     except (OSError, ValueError, TypeError) as error:
         print(c(str(error), C.RED), file=sys.stderr)
         return 1

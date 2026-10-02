@@ -36,7 +36,7 @@ def _is_true(node: dict, key: str) -> bool:
     return node.get(key) is True
 
 
-def _node_summary(node: dict, path: tuple[int, ...], *, include_children: bool = False) -> dict:
+def node_summary(node: dict, path: tuple[int, ...], *, include_children: bool = False) -> dict:
     """输出模型真正需要的节点字段，保留读数来源和坐标口径。"""
     result: dict[str, Any] = {
         "path": _path_text(path),
@@ -79,7 +79,7 @@ def _node_summary(node: dict, path: tuple[int, ...], *, include_children: bool =
         result["children_count"] = len(children)
     if include_children:
         result["children"] = [
-            _node_summary(child, path + (index,), include_children=False)
+            node_summary(child, path + (index,), include_children=False)
             for index, child in enumerate(children)
         ]
     return result
@@ -109,15 +109,15 @@ def _focus_context(items: list[tuple[dict, tuple[int, ...], tuple[int, ...]]],
         ancestor_path = path[:end]
         ancestor = by_path.get(ancestor_path)
         if ancestor:
-            ancestors.append(_node_summary(ancestor[0], ancestor_path))
+            ancestors.append(node_summary(ancestor[0], ancestor_path))
 
     siblings = []
     for sibling, sibling_path, sibling_parent in items:
         if sibling_parent == parent and sibling_path != path and _meaningful(sibling):
-            siblings.append(_node_summary(sibling, sibling_path))
+            siblings.append(node_summary(sibling, sibling_path))
 
     children = [
-        _node_summary(child, path + (index,))
+        node_summary(child, path + (index,))
         for index, child in enumerate(node.get("children") or [])
         if _meaningful(child) or _is_true(child, "focused")
     ]
@@ -164,7 +164,7 @@ def summarize_full_json(full_json: dict, *, max_nodes: int = DEFAULT_MAX_NODES,
 
     candidates = []
     for node, path, _parent in focused:
-        candidates.append(_node_summary(node, path, include_children=False))
+        candidates.append(node_summary(node, path, include_children=False))
     if not candidates and candidate_count:
         for index, item in enumerate(top_focus):
             if isinstance(item, dict):
@@ -189,13 +189,13 @@ def summarize_full_json(full_json: dict, *, max_nodes: int = DEFAULT_MAX_NODES,
     included_paths = set()
     for node, path, _parent in items:
         if _meaningful(node) and path not in included_paths:
-            page_nodes.append(_node_summary(node, path))
+            page_nodes.append(node_summary(node, path))
             included_paths.add(path)
         if len(page_nodes) >= max_nodes:
             break
     if not page_nodes and items:
         node, path, _parent = items[0]
-        page_nodes.append(_node_summary(node, path))
+        page_nodes.append(node_summary(node, path))
 
     stats = full_json.get("align_stats") or {}
     return {

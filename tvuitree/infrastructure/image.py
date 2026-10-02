@@ -7,7 +7,7 @@ import json
 import os
 import tempfile
 
-from tvuitree.domain.screenshot import _px, _scale_factors
+from tvuitree.domain.screenshot import to_pixel, scale_factors
 
 COLOR_READING = (255, 0, 0)
 COLOR_DERIVED = (0, 90, 255)
@@ -102,7 +102,7 @@ def draw_boxes(png_bytes: bytes, boxes: list, out_path: str,
 
     sw = (screen or {}).get("width")
     sh = (screen or {}).get("height")
-    sx, sy = _scale_factors(img.width, img.height, screen)
+    sx, sy = scale_factors(img.width, img.height, screen)
     if sx is None or sy is None:
         notes.append(f"JSON 里没有 wm size（width/height），无法核对截图 "
                      f"{img.width}×{img.height} 与控件树坐标的像素对应关系，"
@@ -148,11 +148,11 @@ def draw_boxes(png_bytes: bytes, boxes: list, out_path: str,
             if fl < 0 or ft < 0 or fr > img.width or fb > img.height:
                 notes.append(f"框有部分越出画面，裁到边界后绘制：{label}"
                              f"｜读数 [{l},{t}-{r},{b}] → 换算后 [{fl:g},{ft:g}-{fr:g},{fb:g}]"
-                             f" → 实际画 [{_px(cl)},{_px(ct)}-{_px(cr)},{_px(cb)}]"
+                             f" → 实际画 [{to_pixel(cl)},{to_pixel(ct)}-{to_pixel(cr)},{to_pixel(cb)}]"
                              f"（越出的像素画不出来，读数没变）")
             else:
                 edge_only += 1
-        rect = (_px(cl), _px(ct), _px(cr), _px(cb))
+        rect = (to_pixel(cl), to_pixel(ct), to_pixel(cr), to_pixel(cb))
         color = COLOR_READING if kind == "reading" else COLOR_DERIVED
         _stroke_rect(dr, rect, color, width, dashed=(kind != "reading"))
         if show_details:

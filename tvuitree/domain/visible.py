@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tvuitree.domain.observation import _node_summary
+from tvuitree.domain.observation import node_summary
 
 
 SCHEMA_VERSION = "tv-visible/v1"
@@ -104,7 +104,7 @@ def select_visible(full_json: dict) -> dict:
                 if _truncated_prefix(label) is None]
     page_nodes = []
     for path in sorted(targets, key=order.__getitem__):
-        raw = _node_summary(by_path[path], path)
+        raw = node_summary(by_path[path], path)
         summary = {key: raw[key] for key in
                    ("path", "source", "class", "resource_id", "bounds", "bounds_kind",
                     "actions", "focused", "selected", "checked", "enabled")

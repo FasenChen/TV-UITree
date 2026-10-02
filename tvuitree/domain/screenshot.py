@@ -204,7 +204,7 @@ def compare_focus(obj: dict) -> list:
 # ------------------------------------------------------------------ 截图与画图
 
 
-def _px(v: float) -> int:
+def to_pixel(v: float) -> int:
     """换算后的坐标落到像素：四舍五入。
 
     不用 `int()` —— 截断是**单边偏小**的系统性偏差（每个坐标最多 1 px），
@@ -213,7 +213,7 @@ def _px(v: float) -> int:
     return int(v + 0.5)
 
 
-def _scale_factors(img_w: int, img_h: int, screen: dict) -> tuple:
+def scale_factors(img_w: int, img_h: int, screen: dict) -> tuple:
     """`截图像素 / 控件树坐标` 的**逐轴**换算系数；缺 wm size 时返回 (None, None)。
 
     控件树坐标基于 `wm size`（有 Override 时是 Override），截图是物理像素。

@@ -7,7 +7,7 @@ from typing import Iterable, Optional
 from tvuitree.domain.component import normalize_component
 from .models import (
     ACT_RE, A11Y_BOUNDS_RE, BOUNDS_RE, DUMP_INDENT_UNIT, FLAGS_RE, NODE_RE,
-    NODE_RE_POST_NAME, RES_RE, VH_RE, Block, Node, U2Node, _anomaly,
+    NODE_RE_POST_NAME, RES_RE, VH_RE, Block, Node, U2Node, record_anomaly,
 )
 
 # ------------------------------------------------------------------ 解析 dumpsys 视图树
@@ -46,9 +46,9 @@ def parse_node_line(text: str, lineno: int, indent: int,
                 n.res_id = t
             i += 1
         if n.bounds is None and anomalies is not None:
-            _anomaly(lineno, text, f"该行有字段但没解析出 bounds：{rest!r}", anomalies)
+            record_anomaly(lineno, text, f"该行有字段但没解析出 bounds：{rest!r}", anomalies)
     elif m.group("vhash") and anomalies is not None:
-        _anomaly(lineno, text, "有 {hash} 但后面没有任何字段", anomalies)
+        record_anomaly(lineno, text, "有 {hash} 但后面没有任何字段", anomalies)
     return n
 
 
@@ -101,7 +101,7 @@ def parse_dumpsys_top(raw: str, anomalies: Optional[list] = None) -> list:
                     continue
                 ind = len(cur) - len(cur.lstrip(" "))
                 if ind % DUMP_INDENT_UNIT:
-                    _anomaly(i + 1, cur,
+                    record_anomaly(i + 1, cur,
                              f"缩进 {ind} 不是 {DUMP_INDENT_UNIT} 的整数倍，树层级可能错位", target)
                 node = parse_node_line(cur.lstrip(" ").rstrip(), i + 1, ind, target)
                 if node is None or ind < 4:
