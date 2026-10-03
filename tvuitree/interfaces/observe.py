@@ -8,7 +8,7 @@ import sys
 from tvuitree.application.observation import collect_observation
 from tvuitree.infrastructure.adb import AdbError
 from .connection import connect_for_cli
-from .json_io import emit_json, load_full_json
+from .json_io import emit_json_checked, load_full_json
 from .terminal import C, c
 
 
@@ -37,6 +37,8 @@ def run_observe(args: argparse.Namespace) -> int:
         except Exception as error:
             print(c(f"采集失败：{type(error).__name__}: {error}", C.RED), file=sys.stderr)
             return 3
-    emit_json(result, args.out)
+    failed = emit_json_checked(result, args.out)
+    if failed is not None:
+        return failed
     print(c("[observe] 已生成模型观察 JSON", C.GRY), file=sys.stderr)
     return 0

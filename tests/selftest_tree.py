@@ -2212,6 +2212,74 @@ if has_pil:
 else:
     print("  （跳过标签失败测试：未安装 Pillow）")
 
+# ================================================================== 15. JSON 输出原子性与写失败退出码
+
+t.group("15. emit_json 原子写与 --out 写失败的退出码")
+
+# (a) 原子性：os.replace 失败时不得留下半成品，也不得残留临时文件
+_atomic_dir = Path(TD) / "atomic_out"
+_atomic_dir.mkdir(exist_ok=True)
+_atomic_target = _atomic_dir / "full.json"
+
+def _replace_failure_jsonio(src, dst):
+    raise PermissionError("fixture locked")
+
+# json_io 在本任务 GREEN 之后才 import os；RED 阶段先兜底挂上同一模块对象，
+# 避免 AttributeError 让顺序自检整场中止（规则：读取尚不存在的模块属性必须防御）。
+if not hasattr(json_io, "os"):
+    json_io.os = os
+_orig_jsonio_replace = json_io.os.replace
+json_io.os.replace = _replace_failure_jsonio
+try:
+    _raised = None
+    try:
+        json_io.emit_json({"tree": [], "note": "中文"}, str(_atomic_target))
+    except Exception as error:          # 宽捕获后 isinstance，避免中止整场
+        _raised = error
+    t.ok(isinstance(_raised, OSError),
+         "os.replace 失败时 emit_json 让 OSError 传播", f"实际 {type(_raised).__name__}")
+finally:
+    json_io.os.replace = _orig_jsonio_replace
+t.ok(not _atomic_target.exists(), "写入失败时目标文件不存在（不留半成品）")
+_litter = sorted(p.name for p in _atomic_dir.iterdir())
+t.eq(_litter, [], "写入失败时不残留临时文件")
+
+# 成功路径仍按真实 UTF-8 字节数报数、仍是 LF
+_ok_out = _atomic_dir / "ok.json"
+_buf2 = io.StringIO()
+with contextlib.redirect_stderr(_buf2):
+    json_io.emit_json({"tree": [], "note": "中文"}, str(_ok_out))
+_payload2 = _ok_out.read_bytes()
+t.ok(f"（{len(_payload2)} 字节）" in _buf2.getvalue(),
+     "原子写之后字节数提示仍按实际 UTF-8 长度（含末尾 LF）", repr(_buf2.getvalue()))
+t.ok(_payload2.endswith(b"\n") and b"\r\n" not in _payload2, "仍是 LF，无 CRLF")
+t.eq(json.loads(_payload2.decode("utf-8")), {"tree": [], "note": "中文"}, "内容完整可解析")
+
+# Windows 设备名 / devnull 必须退回普通直写，不能走 os.replace
+_is_dev = getattr(json_io, "_is_device_target", lambda _p: False)
+for _dev in ([os.devnull] if os.devnull else []) + ["NUL", "CON", "PRN", "AUX", "COM1", "LPT1"]:
+    t.ok(_is_dev(_dev), f"{_dev} 被识别为设备目标（走普通直写）")
+t.ok(not _is_dev("full.json"), "普通文件名不是设备目标")
+t.ok(not _is_dev(str(_ok_out)), "绝对路径的普通文件不是设备目标")
+
+# (b) 退出码：--out 不可写时，observe/tree/visible 都返回 2、有说明、无 traceback
+_blocked_file = Path(TD) / "blocked_out.txt"
+_blocked_file.write_text("x", encoding="utf-8")      # 上级是普通文件 → 写不进去
+_bad_out = str(_blocked_file / "sub" / "out.json")
+for _cmd in ([["observe"], str(_ok_out)],
+             [["visible"], str(_ok_out)],
+             [["tree", "--mode", "slim"], str(_ok_out)]):
+    _args, _json_in = _cmd
+    _proc = subprocess.run(
+        [sys.executable, os.path.join(HERE, "main.py"), *_args,
+         "--from-json", _json_in, "--out", _bad_out, "--no-color", "--quiet"],
+        cwd=HERE, capture_output=True, timeout=30,
+    )
+    t.eq(_proc.returncode, 2, f"{_args[0]} 的 --out 写失败退出码为 2")
+    t.ok(bool(_proc.stderr.strip()), f"{_args[0]} 的 --out 写失败在 stderr 给说明")
+    t.ok(b"Traceback" not in _proc.stderr,
+         f"{_args[0]} 的 --out 写失败无 traceback", repr(_proc.stderr))
+
 # ================================================================== 收尾
 
 shutil.rmtree(TD, ignore_errors=True)

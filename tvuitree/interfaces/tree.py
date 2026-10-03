@@ -12,7 +12,7 @@ from tvuitree.domain.tree.pruning import (
 )
 from tvuitree.infrastructure.adb import AdbError
 from .connection import connect_for_cli
-from .json_io import emit_json, load_full_json
+from .json_io import emit_json_checked, load_full_json
 from .terminal import C, c
 
 
@@ -115,6 +115,8 @@ def run_tree(args: argparse.Namespace) -> int:
         _report_anomalies(result.pop("_parse_anomalies", []))
     if args.mode == "slim":
         apply_prune(result, switches)
-    emit_json(result, args.out)
+    failed = emit_json_checked(result, args.out)
+    if failed is not None:
+        return failed
     _summary(result, args.out)
     return 0
