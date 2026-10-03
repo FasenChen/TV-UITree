@@ -1,5 +1,4 @@
 uiautomator2
 Pillow
 pyflakes
-uiautodev
 mcp>=1.28,<2

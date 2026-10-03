@@ -2458,6 +2458,28 @@ _named_absent._popen = _FakeAdbPopen({"devices": (0, _DEVICES_TWO, b"")})._popen
 t.eq(_named_absent.connect(quiet=True), False,
      "指定 serial 但不在 devices 里 → False（行为不变，不受多设备影响）")
 
+# ================================================================== 18. 依赖与探测路径卫生
+
+t.group("18. requirements 与 adb 探测列表不含个人痕迹")
+
+_req_path = os.path.join(HERE, "requirements.txt")
+_req_text = open(_req_path, "r", encoding="utf-8").read()
+t.ok("uiautodev" not in _req_text,
+     "requirements.txt 不再引用零 import 的 uiautodev（死依赖）")
+for _needed in ("uiautomator2", "Pillow", "pyflakes", "mcp"):
+    t.ok(_needed in _req_text, f"requirements.txt 保留实际使用的依赖 {_needed}")
+
+_adb_src = open(os.path.join(HERE, "tvuitree", "infrastructure", "adb.py"),
+                "r", encoding="utf-8").read()
+t.ok("D:\\platform-tools" not in _adb_src,
+     "adb 探测列表不再含个人的 D:\\platform-tools 路径")
+t.ok("SoftwareInstalled" not in _adb_src,
+     "adb 探测列表不再含个人的 SoftwareInstalled 安装路径")
+t.ok("C:\\platform-tools" in _adb_src,
+     "保留通用的 C:\\platform-tools 探测（它不是个人机器痕迹）")
+t.ok("LOCALAPPDATA" in _adb_src and "ANDROID_HOME" in _adb_src,
+     "保留环境变量与标准 SDK 探测")
+
 # ================================================================== 收尾
 
 shutil.rmtree(TD, ignore_errors=True)

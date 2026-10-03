@@ -16,8 +16,6 @@ ADB_CANDIDATES = [
     r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe",
     r"%USERPROFILE%\AppData\Local\Android\Sdk\platform-tools\adb.exe",
     r"C:\platform-tools\adb.exe",
-    r"D:\platform-tools\adb.exe",
-    r"D:\SoftwareInstalled\Android\android_sdk\platform-tools\adb.exe",
     r"C:\Android\Sdk\platform-tools\adb.exe",
 ]
 
