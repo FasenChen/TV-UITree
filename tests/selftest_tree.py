@@ -2143,6 +2143,35 @@ t.eq(getattr(mcp_mod, "FOCUS_NODE_FIELDS", None),
      ("class", "resource_id", "package", "bounds", "bounds_kind", "source"),
      "焦点压缩字段只定义一次")
 
+# ================================================================== 13. component 解析加固
+
+t.group("13. component_from_window 拒绝非 component 子串")
+
+# 真机格式（取自 _temp/e2e/full.json）必须继续解析出正确 component
+t.eq(component.component_from_window(
+    "Window{689d118 u0 com.android.tv.settings/com.android.tv.settings.MainSettings}"),
+    "com.android.tv.settings/com.android.tv.settings.MainSettings",
+    "真机 mCurrentFocus 的全限定类名格式仍解析正确")
+t.eq(component.component_from_window("  mFocusedWindow=Window{abc u0 com.demo/.MainActivity}"),
+    "com.demo/.MainActivity", "短类名 .Cls 格式仍解析正确（包名有点号）")
+t.eq(component.component_from_window("mCurrentFocus=com.demo/.MainActivity"),
+    "com.demo/.MainActivity", "无右括号但包名有点号时仍走回退解析")
+# 同一串里既有伪 token 又有真 component：严格正则应先命中真的那个
+t.eq(component.component_from_window("Window{1a2b u0 uid/1000 com.foo/com.foo.Bar}"),
+    "com.foo/com.foo.Bar", "串里同时有 uid/1000 与真 component 时取真 component")
+# 核心回归：uid/1000 不是 component，两种形状都必须返回 None
+t.eq(component.component_from_window("Window{abc u0 uid/1000}"), None,
+    "有右括号的 uid/1000 不再被严格正则当成 component")
+t.eq(component.component_from_window("mCurrentFocus=uid/1000"), None,
+    "无右括号的 uid/1000 不再被回退正则当成 component")
+t.eq(component.component_from_window("uid/1000"), None, "裸 uid/1000 返回 None")
+t.eq(component.component_from_window(None), None, "None 输入仍返回 None")
+t.eq(component.component_from_window(""), None, "空串仍返回 None")
+# 独立函数不得被牵连
+t.eq(component.component_from_activity_record(
+    "  ACTIVITY com.demo/.MainActivity deadbeef pid=100 userId=0"),
+    "com.demo/.MainActivity", "component_from_activity_record 不受本任务影响")
+
 # ================================================================== 收尾
 
 shutil.rmtree(TD, ignore_errors=True)
