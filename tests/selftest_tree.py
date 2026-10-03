@@ -51,6 +51,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
@@ -2257,8 +2258,9 @@ t.eq(json.loads(_payload2.decode("utf-8")), {"tree": [], "note": "中文"}, "内
 
 # Windows 设备名 / devnull 必须退回普通直写，不能走 os.replace
 _is_dev = getattr(json_io, "_is_device_target", lambda _p: False)
-for _dev in ([os.devnull] if os.devnull else []) + ["NUL", "CON", "PRN", "AUX", "COM1", "LPT1"]:
-    t.ok(_is_dev(_dev), f"{_dev} 被识别为设备目标（走普通直写）")
+t.ok(_is_dev(os.devnull), "os.devnull 被识别为设备目标")
+for _dev in ["NUL", "CON", "PRN", "AUX", "COM1", "LPT1"]:
+    t.eq(_is_dev(_dev), os.name == "nt", f"{_dev} 的设备语义受平台限定")
 t.ok(not _is_dev("full.json"), "普通文件名不是设备目标")
 t.ok(not _is_dev(str(_ok_out)), "绝对路径的普通文件不是设备目标")
 
@@ -2266,19 +2268,35 @@ t.ok(not _is_dev(str(_ok_out)), "绝对路径的普通文件不是设备目标")
 _blocked_file = Path(TD) / "blocked_out.txt"
 _blocked_file.write_text("x", encoding="utf-8")      # 上级是普通文件 → 写不进去
 _bad_out = str(_blocked_file / "sub" / "out.json")
-for _cmd in ([["observe"], str(_ok_out)],
-             [["visible"], str(_ok_out)],
-             [["tree", "--mode", "slim"], str(_ok_out)]):
-    _args, _json_in = _cmd
-    _proc = subprocess.run(
-        [sys.executable, os.path.join(HERE, "main.py"), *_args,
-         "--from-json", _json_in, "--out", _bad_out, "--no-color", "--quiet"],
-        cwd=HERE, capture_output=True, timeout=30,
-    )
-    t.eq(_proc.returncode, 2, f"{_args[0]} 的 --out 写失败退出码为 2")
-    t.ok(bool(_proc.stderr.strip()), f"{_args[0]} 的 --out 写失败在 stderr 给说明")
-    t.ok(b"Traceback" not in _proc.stderr,
-         f"{_args[0]} 的 --out 写失败无 traceback", repr(_proc.stderr))
+valid_output_full = Path(TD) / "valid_output_full.json"
+valid_output_full.write_text(json.dumps({"tree": [], "screen": {"width": 400, "height": 300}},
+                                       ensure_ascii=False), encoding="utf-8")
+with patch.object(visible_interface, "emit_json_checked", wraps=json_io.emit_json_checked) as output_probe, \
+     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+    output_probe_rc = cli.main(["visible", "--from-json", str(valid_output_full),
+                               "--out", _bad_out, "--no-color", "--quiet"])
+t.eq(output_probe.call_count, 1, "visible 写失败用例必须到达输出边界")
+t.eq(output_probe_rc, 2, "有效输入的输出失败返回 2")
+
+for output_args in [["observe"], ["visible"], ["tree", "--mode", "slim"]]:
+    valid_output_path = Path(TD) / (output_args[0] + "_valid_output.json")
+    for output_target, expected_rc in [(str(valid_output_path), 0), (_bad_out, 2)]:
+        output_process = subprocess.run(
+            [sys.executable, os.path.join(HERE, "main.py"), *output_args,
+             "--from-json", str(valid_output_full), "--out", output_target, "--no-color", "--quiet"],
+            cwd=HERE, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+            env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+        t.eq(output_process.returncode, expected_rc, "有效输入的输出退出码")
+        t.ok("Traceback" not in output_process.stderr, "输出失败无 traceback")
+        if expected_rc == 0:
+            t.ok(valid_output_path.exists(), "正向对照实际生成文件")
+        else:
+            t.ok("写不了" in output_process.stderr and output_target in output_process.stderr,
+                 "失败明确指向写入目标")
+            t.ok("screen.width" not in output_process.stderr, "不是输入校验提前失败")
+            t.ok("[out] 已写入" not in output_process.stderr and "[observe]" not in output_process.stderr
+                 and "[visible]" not in output_process.stderr and "[tree]" not in output_process.stderr,
+                 "输出失败后没有成功摘要")
 
 # ================================================================== 16. ADB 属性与连接语义
 
@@ -2479,6 +2497,175 @@ t.ok("C:\\platform-tools" in _adb_src,
      "保留通用的 C:\\platform-tools 探测（它不是个人机器痕迹）")
 t.ok("LOCALAPPDATA" in _adb_src and "ANDROID_HOME" in _adb_src,
      "保留环境变量与标准 SDK 探测")
+
+t.group("19. 补修：系统组件与非类名字段")
+for window_text, expected_component in [
+    (None, None), ("", None),
+    ("Window{abc u0 android/com.android.internal.app.ResolverActivity}",
+     "android/com.android.internal.app.ResolverActivity"),
+    ("mCurrentFocus=android/com.android.internal.app.ResolverActivity",
+     "android/com.android.internal.app.ResolverActivity"),
+    ("Window{abc u0 com.example/.Main}", "com.example/.Main"),
+    ("com.example/com.example.Outer$Inner", "com.example/com.example.Outer$Inner"),
+    ("Window{abc u0 uid/1000}", None), ("mCurrentFocus=uid/1000", None),
+    ("Window{abc u0 com.example/1000}", None),
+    ("noise uid/1000 then com.example/.Main trailing", "com.example/.Main"),
+]:
+    t.eq(component.component_from_window(window_text), expected_component, "窗口组件合法结构")
+
+
+t.group("20. 补修：连接查询失败不外漏")
+for connection_failure in [subprocess.TimeoutExpired(["adb", "devices"], 20),
+                           FileNotFoundError("adb")]:
+    connection_device = adb.Adb("adb", "fixture:5555", auto_connect=False)
+    connection_device._connected = True
+    with patch.object(adb.subprocess, "run", side_effect=connection_failure):
+        try:
+            connection_result = connection_device.connect(quiet=True)
+        except Exception as error:
+            t.ok(False, "连接异常返回 False", repr(error))
+        else:
+            t.eq(connection_result, False, "连接失败不能报告成功")
+    t.eq(connection_device._connected, False, "失败清除陈旧连接状态")
+
+    with patch.object(adb.subprocess, "run", side_effect=connection_failure), \
+         contextlib.redirect_stdout(io.StringIO()) as connection_stdout, \
+         contextlib.redirect_stderr(io.StringIO()) as connection_stderr:
+        try:
+            connection_rc = cli.main(["observe", "--TV_IP_Address", "fixture", "--port", "5555",
+                                      "--no-connect", "--no-color", "--quiet"])
+        except Exception as error:
+            t.ok(False, "CLI 连接错误不外漏", repr(error))
+        else:
+            t.eq(connection_rc, 2, "CLI 连接错误返回 2")
+            t.ok("无法连接" in connection_stderr.getvalue(), "CLI 保留中文错误说明")
+            t.eq(connection_stdout.getvalue(), "", "连接失败不输出观察 JSON")
+
+
+def failed_devices_query(command: list[str], **kwargs) -> subprocess.CompletedProcess:
+    return subprocess.CompletedProcess(command, 1,
+        b"List of devices attached\nfixture:5555\tdevice\n", b"query failed")
+
+
+with patch.object(adb.subprocess, "run", side_effect=failed_devices_query):
+    connection_device = adb.Adb("adb", "fixture:5555", auto_connect=False)
+    t.eq(connection_device.connect(quiet=True), False, "非零查询退出码不能证明连接成功")
+
+
+t.group("21. 补修：恢复查询与单次重试")
+
+
+def reconnect_query_nonzero(command: list[str], **kwargs) -> subprocess.CompletedProcess:
+    if command[3:] == ["connect", "fixture:5555"]:
+        return subprocess.CompletedProcess(command, 0, b"connected", b"")
+    return subprocess.CompletedProcess(command, 1,
+        b"List of devices attached\nfixture:5555\tdevice\n", b"query failed")
+
+
+reconnect_device = adb.Adb("adb", "fixture:5555")
+with patch.object(adb.subprocess, "run", side_effect=reconnect_query_nonzero), \
+     patch.object(adb.logging, "warning") as reconnect_warning:
+    t.eq(reconnect_device._reconnect(), False, "恢复查询失败不能判成功")
+    t.eq(reconnect_warning.call_count, 0, "查询失败不打印恢复成功日志")
+t.eq(reconnect_device._healing, False, "失败后恢复防递归标志")
+
+for recovery_mode in ["restored", "still_offline", "retry_offline"]:
+    recovery_calls: list[list[str]] = []
+
+    def healing_process(command: list[str], **kwargs) -> subprocess.CompletedProcess:
+        args = command[3:]
+        recovery_calls.append(args)
+        if args == ["shell", "echo ok"]:
+            if recovery_calls.count(args) == 1 or recovery_mode == "retry_offline":
+                return subprocess.CompletedProcess(command, 1, b"", b"device offline")
+            return subprocess.CompletedProcess(command, 0, b"ok\n", b"")
+        if args == ["connect", "fixture:5555"]:
+            return subprocess.CompletedProcess(command, 0, b"connected", b"")
+        if args == ["devices"]:
+            state = "offline" if recovery_mode == "still_offline" else "device"
+            return subprocess.CompletedProcess(command, 0,
+                f"List of devices attached\nfixture:5555\t{state}\n".encode(), b"")
+        raise AssertionError(f"意外的 ADB 命令：{args!r}")
+
+    recovery_device = adb.Adb("adb", "fixture:5555")
+    with patch.object(adb.subprocess, "run", side_effect=healing_process), \
+         patch.object(adb.logging, "warning") as recovery_warning:
+        recovery_rc, recovery_out, recovery_err = recovery_device._popen(["shell", "echo ok"])
+    t.eq(recovery_rc, 0 if recovery_mode == "restored" else 1, "原命令返回实际恢复结果")
+    t.eq(recovery_calls.count(["shell", "echo ok"]), 1 if recovery_mode == "still_offline" else 2,
+         "成功只重试一次，恢复失败不重试")
+    t.eq(recovery_calls.count(["connect", "fixture:5555"]), 1, "仅一次恢复连接")
+    t.eq(recovery_calls.count(["devices"]), 1, "仅一次恢复状态查询")
+    t.eq(recovery_warning.call_count, 0 if recovery_mode == "still_offline" else 1,
+         "成功确认连接后才打印恢复日志")
+    t.eq(recovery_device._healing, False, "恢复链结束后解除标志")
+
+
+t.group("22. 补修：设备名的平台边界")
+for output_platform in ["nt", "posix"]:
+    with patch.object(json_io.os, "name", output_platform):
+        for device_output in ["NUL", "CON.json", "COM1.json", "LPT1"]:
+            t.eq(json_io._is_device_target(device_output), output_platform == "nt",
+                 "保留设备名只属于 Windows")
+t.eq(json_io._is_device_target(os.devnull), True, "实际平台的空设备保持兼容")
+
+if os.name != "nt":
+    posix_output = Path(TD) / "CON.json"
+    with patch.object(json_io.os, "replace", wraps=json_io.os.replace) as posix_replace:
+        with contextlib.redirect_stderr(io.StringIO()):
+            json_io.emit_json({"tree": []}, str(posix_output))
+    t.eq(posix_replace.call_count, 1, "POSIX 同名普通文件使用原子替换")
+
+
+t.group("23. 补修：已有目标的失败原子性")
+existing_atomic_dir = Path(TD) / "existing_atomic"
+existing_atomic_dir.mkdir()
+existing_atomic_file = existing_atomic_dir / "existing.json"
+old_complete_bytes = b"previous complete content\n"
+existing_atomic_file.write_bytes(old_complete_bytes)
+existing_atomic_names = {p.name for p in existing_atomic_dir.iterdir()}
+with patch.object(json_io.os, "replace", side_effect=OSError("injected replace failure")):
+    try:
+        json_io.emit_json({"tree": []}, str(existing_atomic_file))
+    except Exception as error:
+        t.ok(isinstance(error, OSError), "替换失败仍抛 OSError", repr(error))
+    else:
+        t.ok(False, "替换失败必须被报告")
+t.eq(existing_atomic_file.read_bytes(), old_complete_bytes, "替换失败旧字节保持完整")
+t.eq({p.name for p in existing_atomic_dir.iterdir()}, existing_atomic_names,
+     "替换失败临时文件清理")
+
+original_fdopen = os.fdopen
+
+
+def partial_json_writer(fd: int, *args, **kwargs):
+    opened = original_fdopen(fd, *args, **kwargs)
+
+    class PartialWriter:
+        def __enter__(self) -> PartialWriter:
+            return self
+
+        def write(self, text: str) -> None:
+            opened.write(text[:1])
+            raise OSError("injected partial write")
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            opened.close()
+
+    return PartialWriter()
+
+
+with patch.object(json_io.os, "fdopen", side_effect=partial_json_writer):
+    try:
+        json_io.emit_json({"tree": []}, str(existing_atomic_file))
+    except Exception as error:
+        t.ok(isinstance(error, OSError), "部分写入失败仍抛 OSError", repr(error))
+    else:
+        t.ok(False, "部分写入失败必须被报告")
+t.eq(existing_atomic_file.read_bytes(), old_complete_bytes, "部分写入失败旧字节保持完整")
+t.eq({p.name for p in existing_atomic_dir.iterdir()}, existing_atomic_names,
+     "部分写入失败临时文件清理")
+
 
 # ================================================================== 收尾
 

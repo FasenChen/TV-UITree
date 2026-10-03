@@ -21,6 +21,8 @@ def _is_device_target(out_path: str) -> bool:
     """目标是否是设备文件（NUL / CON / COM1 / os.devnull 等），这类目标只能直写。"""
     if out_path == os.devnull:
         return True
+    if os.name != "nt":
+        return False
     stem = os.path.splitext(os.path.basename(out_path))[0].lower()
     return stem in _WINDOWS_DEVICE_NAMES or bool(_WINDOWS_DEVICE_RE.fullmatch(stem))
 

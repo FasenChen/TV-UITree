@@ -5,21 +5,19 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-def component_from_window(text: Optional[str]) -> Optional[str]:
-    """`Window{... u0 com.pkg/.Cls}` → `com.pkg/.Cls`
+# 系统包 android 合法；类名每段以标识符字符开头，不能是 UID 数字。
+_WINDOW_COMPONENT = (r"([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)/"
+                     r"(\.?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)")
 
-    包名组要求至少含一个点号：真机 component 的包名恒为反向域名，
-    而 `uid/1000` 这类窗口字段没有点号。不收紧就会把 `uid/1000` 当成
-    前台 component，进而让 pick_block 回退到最后一个 ACTIVITY 段——
-    那可能是另一个页面的树。
-    """
+
+def component_from_window(text: Optional[str]) -> Optional[str]:
+    """解析窗口组件，保留系统包并排除 UID 等非类名字段。"""
     if not text:
         return None
-    m = re.search(r"\s([A-Za-z][\w]*(?:\.[\w]+)+)/([\w.$]+)\}", text)
-    if m:
-        return f"{m.group(1)}/{m.group(2)}"
-    m = re.search(r"\b([A-Za-z][\w]*(?:\.[\w]+)+)/([\w.$]+)", text)
-    return f"{m.group(1)}/{m.group(2)}" if m else None
+    match = re.search(r"\s" + _WINDOW_COMPONENT + r"\}", text)
+    if not match:
+        match = re.search(r"(?<![\w.$/])" + _WINDOW_COMPONENT + r"(?![\w.$/])", text)
+    return f"{match.group(1)}/{match.group(2)}" if match else None
 
 
 def component_from_activity_record(text: Optional[str]) -> Optional[str]:

@@ -108,8 +108,10 @@ class Adb:
     def _serial_is_device(self) -> bool:
         """本 serial 是否出现在 `adb devices` 且状态列为 device。"""
         try:
-            _rc, out, _err = self._popen(["devices"], timeout=20, heal=False)
+            rc, out, _err = self._popen(["devices"], timeout=20, heal=False)
         except AdbError:
+            return False
+        if rc != 0:
             return False
         for line in out.splitlines()[1:]:
             if not line.strip() or "\t" not in line:
@@ -136,6 +138,7 @@ class Adb:
 
     # ---- 连接 ----
     def connect(self, quiet: bool = False) -> bool:
+        self._connected = False
         if self.serial and ":" in self.serial and self.auto_connect:
             try:
                 rc, out, err = self._popen(["connect", self.serial], timeout=20)
@@ -144,7 +147,12 @@ class Adb:
                     logging.info("[adb] %s", msg)
             except AdbError:
                 pass
-        rc, out, _ = self._popen(["devices"], timeout=20)
+        try:
+            rc, out, _ = self._popen(["devices"], timeout=20, heal=False)
+        except AdbError:
+            return False
+        if rc != 0:
+            return False
         targets = [ln.split()[0] for ln in out.splitlines()[1:] if ln.strip() and "\t" in ln]
         if self.serial:
             # 已指定目标：成员判据不变（README 记录的 no_connect 行为依赖它）
