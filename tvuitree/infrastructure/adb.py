@@ -84,21 +84,42 @@ class Adb:
         return p.returncode, out, err
 
     def _reconnect(self) -> bool:
+        """掉线后重连一次；判据是 `adb devices` 的状态列，不是 connect 的回显措辞。
+
+        回显措辞随 adb 版本与 locale 变化：`already connected` / `connected to` /
+        `cannot connect` / `failed to connect` 都出现过。靠子串猜会把「回显里有
+        connected 但设备其实 offline」判成重连成功，让重试继续打向已死设备，
+        把错误推迟成更难懂的下游异常。这里改用与措辞无关的事实：设备在
+        `adb devices` 里且状态列是 device。
+        """
         if self._healing or not (self.serial and ":" in self.serial and self.auto_connect):
             return False
         self._healing = True
         try:
             try:
-                rc, out, err = self._popen(["connect", self.serial], timeout=25, heal=False)
+                self._popen(["connect", self.serial], timeout=25, heal=False)
+                ok = self._serial_is_device()
             except AdbError:
                 return False
-            msg = out + err
-            ok = "connected" in msg.lower() and "cannot" not in msg.lower()
             if ok:
                 logging.warning("[adb] 连接中断，已自动重连 %s", self.serial)
             return ok
         finally:
             self._healing = False
+
+    def _serial_is_device(self) -> bool:
+        """本 serial 是否出现在 `adb devices` 且状态列为 device。"""
+        try:
+            _rc, out, _err = self._popen(["devices"], timeout=20, heal=False)
+        except AdbError:
+            return False
+        for line in out.splitlines()[1:]:
+            if not line.strip() or "\t" not in line:
+                continue
+            parts = line.split("\t")
+            if parts[0].strip() == self.serial:
+                return parts[1].strip() == "device"
+        return False
 
     def shell(self, command: str, timeout: float = 30.0) -> str:
         rc, out, err = self._popen(["shell", command], timeout=timeout)
@@ -127,12 +148,21 @@ class Adb:
                 pass
         rc, out, _ = self._popen(["devices"], timeout=20)
         targets = [ln.split()[0] for ln in out.splitlines()[1:] if ln.strip() and "\t" in ln]
-        self._connected = bool(self.serial) and self.serial in targets
-        if not self._connected and not self.serial:
-            self._connected = bool(targets)
-            if targets:
-                self.serial = targets[0]
-        return self._connected
+        if self.serial:
+            # 已指定目标：成员判据不变（README 记录的 no_connect 行为依赖它）
+            self._connected = self.serial in targets
+            return self._connected
+        if len(targets) == 1:
+            # 只有一台设备时自动选中，保留给外部库使用者的便利
+            self.serial = targets[0]
+            self._connected = True
+            return True
+        if targets and not quiet:
+            # 多台设备时绝不猜：静默选中一台会让所有读写打到调用方从未指定的设备
+            logging.warning("[adb] 未指定 serial 且检测到多台设备，拒绝自动选择：%s",
+                            ", ".join(targets))
+        self._connected = False
+        return False
 
     # ---- 基础信息 ----
     def props(self) -> dict:

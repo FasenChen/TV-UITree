@@ -2378,6 +2378,86 @@ except adb.AdbError:
     _snap_dev = {}
 t.eq(_snap_dev, {}, "串位时降级为空 dict（与设备不可达同一形状），不给出错值")
 
+# ================================================================== 17. 连接语义
+
+t.group("17. _reconnect 用 devices 状态判据、connect 不在多设备时猜")
+
+_SERIAL = "1.2.3.4:5555"
+_DEVICES_OK = ("List of devices attached\n"
+               f"{_SERIAL}\tdevice\n").encode("utf-8")
+_DEVICES_OFFLINE = ("List of devices attached\n"
+                    f"{_SERIAL}\toffline\n").encode("utf-8")
+_DEVICES_EMPTY = b"List of devices attached\n"
+_DEVICES_TWO = ("List of devices attached\n"
+                "10.0.0.8:5555\tdevice\n"
+                "emulator-5554\tdevice\n").encode("utf-8")
+_DEVICES_ONE = ("List of devices attached\n"
+                "10.0.0.9:5555\tdevice\n").encode("utf-8")
+
+# --- GAP-3：_reconnect 不得再靠回显措辞判断 ---
+# 回显说 "connected" 但设备其实 offline → 必须判为未重连
+_lying = _fake_adb({"connect": (0, f"connected to {_SERIAL}\n".encode("utf-8"), b""),
+                    "devices": (0, _DEVICES_OFFLINE, b"")}, serial=_SERIAL)
+t.eq(_lying._reconnect(), False,
+     "adb connect 回显说 connected 但 devices 状态是 offline → 不算重连成功")
+
+# 回显措辞陌生但设备真的回到 device 状态 → 必须判为已重连
+_wording = _fake_adb({"connect": (0, b"some unfamiliar adb wording\n", b""),
+                      "devices": (0, _DEVICES_OK, b"")}, serial=_SERIAL)
+t.eq(_wording._reconnect(), True,
+     "回显措辞不认识但 devices 状态为 device → 算重连成功（判据是状态不是措辞）")
+
+# 回显说 cannot connect → 仍然 False
+_cannot = _fake_adb({"connect": (0, f"cannot connect to {_SERIAL}\n".encode("utf-8"), b""),
+                     "devices": (0, _DEVICES_EMPTY, b"")}, serial=_SERIAL)
+t.eq(_cannot._reconnect(), False, "cannot connect 且不在 devices 里 → False")
+
+# devices 也掉线（抛 AdbError）时不得把异常漏出去
+_raise_dev = _fake_adb({"connect": (0, b"connected\n", b""),
+                        "devices": adb.AdbError("adb 超时(20s)：devices")}, serial=_SERIAL)
+_raised_dev = None
+try:
+    _result_dev = _raise_dev._reconnect()
+except Exception as error:
+    _raised_dev, _result_dev = error, None
+t.ok(_raised_dev is None and _result_dev is False,
+     "devices 查询失败时 _reconnect 返回 False，不漏异常",
+     f"raised={type(_raised_dev).__name__} result={_result_dev}")
+
+# 守卫：未指定 serial 或 no_connect 时不尝试重连
+t.eq(_fake_adb({}, serial="usbserial")._reconnect(), False,
+     "非 ip:port 的 serial 不触发自动重连")
+_no_auto = adb.Adb("adb", _SERIAL, auto_connect=False)
+_no_auto._popen = _FakeAdbPopen({"connect": (0, b"connected\n", b""),
+                                 "devices": (0, _DEVICES_OK, b"")})._popen
+t.eq(_no_auto._reconnect(), False, "auto_connect=False 时不触发自动重连")
+
+# --- GAP-8：connect() 空 serial 时不得静默抢占某台设备 ---
+_multi = adb.Adb("adb", None, auto_connect=False)
+_multi._popen = _FakeAdbPopen({"devices": (0, _DEVICES_TWO, b"")})._popen
+t.eq(_multi.connect(quiet=True), False, "未指定 serial 且有多台设备 → connect 返回 False")
+t.eq(_multi.serial, None, "多设备时绝不改写 self.serial（不猜目标）")
+
+_single = adb.Adb("adb", None, auto_connect=False)
+_single._popen = _FakeAdbPopen({"devices": (0, _DEVICES_ONE, b"")})._popen
+t.eq(_single.connect(quiet=True), True, "未指定 serial 但只有一台设备 → 自动选中")
+t.eq(_single.serial, "10.0.0.9:5555", "单设备时 serial 被填成那台设备")
+
+_none_dev = adb.Adb("adb", None, auto_connect=False)
+_none_dev._popen = _FakeAdbPopen({"devices": (0, _DEVICES_EMPTY, b"")})._popen
+t.eq(_none_dev.connect(quiet=True), False, "没有任何设备 → False")
+t.eq(_none_dev.serial, None, "没有任何设备时 serial 保持 None")
+
+# 已指定 serial 的既有行为不得改变
+_named = adb.Adb("adb", _SERIAL, auto_connect=False)
+_named._popen = _FakeAdbPopen({"devices": (0, _DEVICES_OK, b"")})._popen
+t.eq(_named.connect(quiet=True), True, "指定 serial 且在 devices 里 → True（行为不变）")
+t.eq(_named.serial, _SERIAL, "指定 serial 时不改写 serial")
+_named_absent = adb.Adb("adb", _SERIAL, auto_connect=False)
+_named_absent._popen = _FakeAdbPopen({"devices": (0, _DEVICES_TWO, b"")})._popen
+t.eq(_named_absent.connect(quiet=True), False,
+     "指定 serial 但不在 devices 里 → False（行为不变，不受多设备影响）")
+
 # ================================================================== 收尾
 
 shutil.rmtree(TD, ignore_errors=True)
