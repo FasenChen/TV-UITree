@@ -161,8 +161,11 @@ def draw_boxes(png_bytes: bytes, boxes: list, out_path: str,
             _cross(dr, rect, color)
             try:
                 dr.text((rect[0] + 2, max(0, rect[1] - 13)), label, fill=color)
-            except Exception:
-                pass
+            except Exception as error:
+                # 标签画不出来时框线仍然有效，但「图上没有文字」必须可解释：
+                # 否则与「本来就没有标签」无法区分，而 shot 的用途正是拿读数核对画面。
+                notes.append(f"框标签绘制失败，图上只有框线没有文字：{label}"
+                             f"（{type(error).__name__}: {error}）")
         drawn += 1
     if edge_only:
         # 汇总行放最前：per-box 提示可能很多、会被截断，这条不能被挤掉

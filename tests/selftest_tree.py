@@ -2172,6 +2172,46 @@ t.eq(component.component_from_activity_record(
     "  ACTIVITY com.demo/.MainActivity deadbeef pid=100 userId=0"),
     "com.demo/.MainActivity", "component_from_activity_record 不受本任务影响")
 
+# ================================================================== 14. 画框标签失败要留痕
+
+t.group("14. draw_boxes 标签绘制失败时写进 notes")
+
+if has_pil:
+    from PIL import ImageDraw as _ImageDraw
+    _orig_text = _ImageDraw.ImageDraw.text
+
+    def _raise_text(self, xy, text, fill=None, *a, **k):
+        raise OSError("fixture: font unavailable")
+
+    _label_png = os.path.join(TD, "label_fail.png")
+    _blank = io.BytesIO()
+    Image.new("RGB", (400, 300), (0, 0, 0)).save(_blank, format="PNG")
+    _canvas = {"width": 400, "height": 300}
+    _boxes = [(100, 120, 200, 180, "A11Y 读数 | TextView#title", "reading")]
+
+    # 正常路径：标签能画，notes 不含标签失败说明（钉死 notes==[] 的约定）
+    _ok, _sk, _notes = image.draw_boxes(_blank.getvalue(), _boxes, _label_png, _canvas)
+    t.eq((_ok, _sk), (1, 0), "正常画框仍然画出 1 个、跳过 0 个")
+    t.ok(not any("标签绘制失败" in n for n in _notes),
+         "标签画得出来时不得追加失败说明", repr(_notes))
+
+    # 失败路径：text 抛异常 → 框照画，但 notes 必须说明标签丢了
+    _ImageDraw.ImageDraw.text = _raise_text
+    try:
+        _ok2, _sk2, _notes2 = image.draw_boxes(_blank.getvalue(), _boxes, _label_png, _canvas)
+    finally:
+        _ImageDraw.ImageDraw.text = _orig_text
+    t.eq((_ok2, _sk2), (1, 0), "标签画不出来不影响框本身：仍算画出 1 个")
+    t.ok(any("标签绘制失败" in n for n in _notes2),
+         "标签绘制失败必须在 notes 里说明，不能静默吞掉", repr(_notes2))
+    t.ok(any("TextView#title" in n for n in _notes2),
+         "失败说明要带上是哪个标签", repr(_notes2))
+    _im2 = Image.open(_label_png).convert("RGB")
+    t.eq(_im2.getpixel((100, 150)), image.COLOR_READING,
+         "标签失败时框线仍严格落在读数上（几何不受影响）")
+else:
+    print("  （跳过标签失败测试：未安装 Pillow）")
+
 # ================================================================== 收尾
 
 shutil.rmtree(TD, ignore_errors=True)
