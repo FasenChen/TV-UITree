@@ -69,8 +69,9 @@ def node_summary(node: dict, path: tuple[int, ...], *, include_children: bool = 
         result["actions"] = actions
 
     for key in ("focused", "selected", "checked", "enabled", "visible", "visible_to_user"):
-        if key in node and (node[key] is True or key in ("focused", "selected", "checked")):
-            result[key] = bool(node[key])
+        value = node.get(key)
+        if value is True or (value is False and key in ("focused", "selected", "checked", "enabled")):
+            result[key] = value
 
     children = node.get("children") or []
     if children:

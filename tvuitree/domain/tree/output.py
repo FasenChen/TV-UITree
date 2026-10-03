@@ -173,7 +173,7 @@ def build_full_json(u2_roots: list, view_roots: list, u2_meta: dict, dev: dict,
         },
         "align_rules": {
             "R0": "两侧各唯一根 → 同一窗口根",
-            "R1": "pred_visible_rect(view)==a11y bounds 且 res-id/class 谓词成立且候选唯一",
+            "R1": "pred_visible_rect(view)==a11y bounds 且 res-id/class 谓词成立且双向候选唯一",
             "R2": "两侧各自唯一 focused 且 class 谓词成立",
             "R3": "父已配对时 a11y 子序列到 view 子序列的保序全注入解唯一才采用",
             "predicate_resid": "view 侧 app:id/X 归一化为 <段包名>:id/X 后字符串相等（同为 None 也算）",

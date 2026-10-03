@@ -161,8 +161,8 @@ def parse_u2_xml(xml_text: str) -> list:
 
     try:
         root = ET.fromstring(xml_text)
-    except ET.ParseError:
-        return []
+    except ET.ParseError as error:
+        raise ValueError(f"a11y XML 解析失败：{error}") from error
 
     def b(el, k) -> bool:
         return el.get(k) == "true"
