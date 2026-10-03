@@ -9,6 +9,8 @@ import sys
 import tempfile
 from typing import Optional
 
+from tvuitree.domain.tree.output import validate_full_json
+
 from .terminal import C, c
 
 # Windows 保留设备名：os.replace 打到这些名字上会失败或行为未定义，
@@ -73,6 +75,4 @@ def emit_json_checked(obj: dict, out_path: Optional[str]) -> Optional[int]:
 def load_full_json(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as source:
         obj = json.load(source)
-    if not isinstance(obj, dict) or not isinstance(obj.get("tree"), list):
-        raise ValueError(f"{path} 里没有 tree，不像是本工具输出的全量 JSON。")
-    return obj
+    return validate_full_json(obj)

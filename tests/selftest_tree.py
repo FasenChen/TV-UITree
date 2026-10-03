@@ -2814,6 +2814,133 @@ t.eq(calls, [("observe_tv", ["connect", "capture_tree"], "capture_tree")],
 
 
 
+t.group("28. 质量 T5：嵌套 JSON 形状与兼容边界")
+quality_path = Path(TD) / "quality_full.json"
+bad_json = [{"tree": [None]}, {"tree": [{}], "screen": ["bad"]},
+            {"tree": [{"children": {}}]}, {"tree": [{"text": 3}]},
+            {"tree": [{"bounds_screen": [0, 0, True, 10]}]},
+            {"tree": [{"bounds_screen": [0, 0, float("nan"), 10]}]},
+            {"tree": [], "screen": {"width": "100"}}, {"tree": [], "focus": "bad"}]
+for obj in bad_json:
+    quality_path.write_text(json.dumps(obj), encoding="utf-8")
+    quality_value_error(lambda: observe_interface.load_full_json(str(quality_path)),
+                        "损坏结构在文件入口拒绝")
+    for args in [["observe"], ["visible"], ["tree", "--mode", "slim"]]:
+        rc, out, err = quality_cli([*args, "--from-json", str(quality_path), "--quiet", "--no-color"])
+        t.eq(rc, 2, "损坏业务结构返回文件错误 2")
+        t.ok("ESCAPED" not in err and "Traceback" not in err, "无异常外漏")
+        t.eq(out, "", "失败不输出成功投影")
+for obj in [{"tree": [], "note": "保留未知字段"},
+            {"tree": [{"children": None, "bounds_screen": None}], "screen": {}},
+            {"tree": [], "screen": {"width": 0, "height": 0}}]:
+    quality_path.write_text(json.dumps(obj), encoding="utf-8")
+    t.eq(observe_interface.load_full_json(str(quality_path)), obj, "稀疏合法结构不被补写或删字段")
+
+
+validator = getattr(tree_output, "validate_full_json", None)
+t.ok(callable(validator), "共享纯校验入口存在")
+if callable(validator):
+    for obj in [{"tree": [], "note": "unknown"}, {"tree": [{"children": None}]}]:
+        t.ok(validator(obj) is obj, "合法对象未被转换或清洗")
+
+
+
+
+t.group("29. 质量 T6：连接仅接受 device 状态")
+for state in ["device", "offline", "unauthorized"]:
+    def quality_devices(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0,
+            f"List of devices attached\nfixture:5555\t{state}\n".encode(), b"")
+    for serial in ["fixture:5555", None]:
+        device = adb.Adb("adb", serial, auto_connect=False)
+        device._connected = True
+        with patch.object(adb.subprocess, "run", side_effect=quality_devices) as process:
+            t.eq(device.connect(quiet=True), state == "device", "初始连接核对可用状态")
+        t.eq(process.call_count, 1, "no_connect 仅一次状态查询")
+        t.eq(device._connected, state == "device", "不保留陈旧状态")
+        if state != "device":
+            t.eq(device.serial, serial, "失败不抢占目标")
+
+for listing, serial, expected, resulting in [
+    ("fixture:5555\toffline\nother:5555\tdevice\n", "fixture:5555", False, "fixture:5555"),
+    ("fixture:5555\toffline\nother:5555\tdevice\n", None, True, "other:5555"),
+    ("fixture:5555\tdevice\nother:5555\tdevice\n", None, False, None),
+]:
+    device = adb.Adb("adb", serial, auto_connect=False)
+    completed = subprocess.CompletedProcess([], 0,
+        ("List of devices attached\n" + listing).encode(), b"")
+    with patch.object(adb.subprocess, "run", return_value=completed) as process:
+        t.eq(device.connect(quiet=True), expected, "混合状态只选可用目标，多设备拒绝猜测")
+    t.eq(device.serial, resulting, "目标选择或保留符合契约")
+    t.eq(process.call_count, 1, "不增加状态查询")
+
+
+
+
+t.group("30. 质量 T7：运行失败有受控 CLI 出口")
+from tvuitree.interfaces import input as input_interface, shot as shot_interface
+device = adb.Adb("adb", "fixture", auto_connect=False)
+with patch.object(input_interface, "connect_for_cli", return_value=device), \
+     patch.object(device, "shell_raw", side_effect=adb.AdbError("injected timeout")):
+    rc, out, err = quality_cli(["input", "DOWN", "--quiet", "--no-color"])
+t.eq(rc, 1, "按键执行失败返回 1")
+t.ok("发送失败" in err and "ESCAPED" not in err, "按键失败中文诊断")
+path = Path(TD) / "quality_shot.json"
+path.write_text(json.dumps({"tree": []}), encoding="utf-8")
+png_path = Path(TD) / "quality_bad.png"
+png_path.write_bytes(b"not a png")
+rc, out, err = quality_cli(["shot", "--json", str(path), "--image", str(png_path),
+                            "--out", str(Path(TD) / "quality-shot.png"), "--quiet", "--no-color"])
+t.eq(rc, 1, "无效图片返回 shot 自身失败 1")
+t.ok("画框失败" in err and "ESCAPED" not in err, "无图片异常外漏")
+with patch("tvuitree.application.screenshot.render", side_effect=OSError("injected output failure")):
+    rc, out, err = quality_cli(["shot", "--json", str(path), "--image", str(png_path), "--quiet", "--no-color"])
+t.eq(rc, 1, "输出失败进入同一 shot 出口")
+t.ok("[out]" not in out and "ESCAPED" not in err, "失败不打印成功摘要")
+with patch.object(shot_interface, "connect_for_cli", return_value=None):
+    rc, out, err = quality_cli(["shot", "--json", str(path), "--quiet", "--no-color"])
+t.eq(rc, 2, "shot 连接失败仍返回 2")
+with patch.object(input_interface, "connect_for_cli", return_value=None):
+    rc, out, err = quality_cli(["input", "DOWN", "--quiet", "--no-color"])
+t.eq(rc, 2, "input 连接失败仍返回 2")
+
+import datetime as quality_datetime
+from PIL import Image as QualityImage
+path.write_text(json.dumps({"tree": [],
+    "captured_at": quality_datetime.datetime.now(quality_datetime.timezone.utc).isoformat()}),
+    encoding="utf-8")
+QualityImage.new("RGB", (2, 2)).save(png_path)
+output_path = Path(TD) / "quality-timezone-shot.png"
+rc, out, err = quality_cli(["shot", "--json", str(path), "--image", str(png_path),
+                            "--out", str(output_path), "--quiet", "--no-color"])
+t.eq(rc, 0, "合法带时区时间可正常离线画框")
+t.ok(output_path.exists(), "成功确实产生 PNG")
+t.ok("ESCAPED" not in err, "合法时间无 TypeError 外漏")
+
+
+
+
+t.group("31. 质量 T8：非法键码不触发任何设备操作")
+for name in ["DOWN; :", "3 4", "HOME|:", "KEYCODE_", "$(X)", "", "２０"]:
+    quality_value_error(lambda: remote_input.normalize_keycode(name), "拒绝非单个键码语法")
+device = adb.Adb("adb", "fixture", auto_connect=False)
+with patch.object(input_interface, "connect_for_cli", return_value=device) as connect, \
+     patch.object(device, "shell_raw", return_value=(0, "", "")) as shell:
+    rc, out, err = quality_cli(["input", "DOWN,HOME; :", "--quiet", "--no-color"])
+t.eq(rc, 2, "非法序列返回用法错误 2")
+t.eq(connect.call_count, 0, "整段预检在连接之前")
+t.eq(shell.call_count, 0, "后段非法不能先发前段")
+with patch.object(device, "shell_raw", return_value=(0, "", "")) as shell:
+    quality_value_error(lambda: list(remote_input.send_sequence(
+        device, ["DOWN", "HOME; :"], delay=0)), "Python API 整段预检")
+t.eq(shell.call_count, 0, "API 也不产生部分副作用")
+for value, expected in [(" down ", "KEYCODE_DPAD_DOWN"), ("dpad_down", "KEYCODE_DPAD_DOWN"),
+                        ("KEYCODE_HOME", "KEYCODE_HOME"), ("20", "20"), ("KEYCODE_3", "KEYCODE_3")]:
+    t.eq(remote_input.normalize_keycode(value), expected, "正常语法与别名保留")
+
+
+
+
 # ================================================================== 收尾
 
 shutil.rmtree(TD, ignore_errors=True)

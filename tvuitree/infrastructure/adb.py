@@ -51,6 +51,16 @@ def resolve_adb(explicit: Optional[str]) -> str:
     return "adb"
 
 
+def _device_targets(out: str) -> list[str]:
+    """返回列表中状态确认为 device 的 serial。"""
+    targets = []
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == "device":
+            targets.append(parts[0])
+    return targets
+
+
 class Adb:
     """一个 serial 对应一个实例。所有设备的读写都从这里出去。"""
 
@@ -113,13 +123,7 @@ class Adb:
             return False
         if rc != 0:
             return False
-        for line in out.splitlines()[1:]:
-            if not line.strip() or "\t" not in line:
-                continue
-            parts = line.split("\t")
-            if parts[0].strip() == self.serial:
-                return parts[1].strip() == "device"
-        return False
+        return self.serial in _device_targets(out)
 
     def shell(self, command: str, timeout: float = 30.0) -> str:
         rc, out, err = self._popen(["shell", command], timeout=timeout)
@@ -153,13 +157,13 @@ class Adb:
             return False
         if rc != 0:
             return False
-        targets = [ln.split()[0] for ln in out.splitlines()[1:] if ln.strip() and "\t" in ln]
+        targets = _device_targets(out)
         if self.serial:
-            # 已指定目标：成员判据不变（README 记录的 no_connect 行为依赖它）
+            # 已指定目标：仅接受列表中状态为 device 的同一 serial
             self._connected = self.serial in targets
             return self._connected
         if len(targets) == 1:
-            # 只有一台设备时自动选中，保留给外部库使用者的便利
+            # 只有一台可用设备时自动选中，保留给外部库使用者的便利
             self.serial = targets[0]
             self._connected = True
             return True
