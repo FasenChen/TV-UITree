@@ -2977,6 +2977,28 @@ for overrides in [{"visible_to_user": False}, {"bounds_screen": [200, 200, 220, 
     t.eq(projected["page"]["nodes"], [], "操作性不覆盖隐藏或屏外证据")
 
 
+t.group("33. 终审补修：缺少焦点坐标保持未知")
+sparse_png = Path(TD) / "sparse-focus-source.png"
+QualityImage.new("RGB", (2, 2)).save(sparse_png)
+for index, coordinates in enumerate([{}, {"bounds_screen": None}]):
+    full = {"tree": [{"source": "a11y", "class": "android.widget.Button",
+                       "focused": True, **coordinates}]}
+    path = Path(TD) / f"sparse-focus-{index}.json"
+    path.write_text(json.dumps(full), encoding="utf-8")
+    try:
+        lines = screenshot.compare_focus(full)
+    except Exception as error:
+        t.ok(False, "缺坐标的焦点比较不外漏异常", repr(error))
+    else:
+        t.ok(any("坐标未知" in line for line in lines), "两来源无坐标明确报告未知")
+    output_path = Path(TD) / f"sparse-focus-{index}.png"
+    rc, out, err = quality_cli(["shot", "--json", str(path), "--image", str(sparse_png),
+                                "--out", str(output_path), "--quiet", "--no-color"])
+    t.eq(rc, 0, "合法稀疏焦点 JSON 可完成离线截图")
+    t.ok("坐标未知" in out and "ESCAPED" not in err, "CLI 保留焦点读数并明确坐标未知")
+    t.ok(output_path.is_file(), "实际 Pillow 处理生成 PNG")
+
+
 # ================================================================== 收尾
 
 shutil.rmtree(TD, ignore_errors=True)

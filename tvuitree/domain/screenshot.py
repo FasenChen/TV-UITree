@@ -196,9 +196,12 @@ def compare_focus(obj: dict) -> list:
         elif a:
             lines.append(f"  焦点节点 {n.label()}：只有 a11y 读数 "
                          f"[{a[0]},{a[1]}-{a[2]},{a[3]}]，没有配对的 dumpsys 节点可对照")
-        else:
+        elif d:
             lines.append(f"  焦点节点 {n.label()}：只有 dumpsys 派生坐标 "
                          f"[{d[0]},{d[1]}-{d[2]},{d[3]}]，没有 a11y 读数可对照")
+        else:
+            lines.append(f"  焦点节点 {n.label()}：a11y 读数与 dumpsys 派生坐标均缺失，"
+                         "坐标未知，无法对照")
     return lines
 
 
