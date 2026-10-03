@@ -2941,6 +2941,42 @@ for value, expected in [(" down ", "KEYCODE_DPAD_DOWN"), ("dpad_down", "KEYCODE_
 
 
 
+t.group("32. 质量 T9：无标签控件保留真实操作与状态")
+for checked in [False, True]:
+    node = {"source": "a11y", "class": "android.widget.Switch", "resource_id": "fixture:id/toggle",
+            "bounds_screen": [0, 0, 20, 20], "checkable": True, "checked": checked,
+            "enabled": False, "visible_to_user": True}
+    result = domain_visible.select_visible({"tree": [node], "screen": {"width": 100, "height": 100}})
+    items = result["page"]["nodes"]
+    t.eq(len(items), 1, "有操作和坐标证据的 Switch 不遗漏")
+    if items:
+        t.eq(items[0].get("checked"), checked, "保留开关 False/True 读数")
+        t.eq(items[0].get("enabled"), False, "不丢失 T2 的禁用状态")
+        t.eq(items[0].get("resource_id"), "fixture:id/toggle", "保留已有标识")
+        t.not_has(items[0], "labels", "不编造显示文字")
+for flags in [{}, {"focusable": True}, {"scrollable": True}]:
+    node = {"source": "a11y", "class": "android.widget.FrameLayout",
+            "bounds_screen": [0, 0, 20, 20], **flags}
+    t.eq(domain_visible.select_visible({"tree": [node], "screen": {"width": 100, "height": 100}})
+         ["page"]["nodes"], [], "空容器不因弱证据膨胀输出")
+
+toggle = {"source": "a11y", "class": "android.widget.Switch",
+          "resource_id": "fixture:id/toggle", "bounds_screen": [0, 0, 20, 20],
+          "checkable": True, "checked": False, "enabled": False, "visible_to_user": True}
+full = {"tree": [toggle], "screen": {"width": 100, "height": 100}}
+cli_o, mcp_o, cli_v, mcp_v = quality_projection_interfaces(full)
+for projected in [cli_v, mcp_v]:
+    items = projected.get("page", {}).get("nodes", [])
+    t.eq(len(items), 1, "各 visible 接口保留无标签开关")
+    if items:
+        t.eq(items[0].get("checked"), False, "各接口保留未选读数")
+        t.eq(items[0].get("enabled"), False, "各接口保留禁用读数")
+for overrides in [{"visible_to_user": False}, {"bounds_screen": [200, 200, 220, 220]}]:
+    hidden = {**toggle, **overrides}
+    projected = domain_visible.select_visible({"tree": [hidden], "screen": full["screen"]})
+    t.eq(projected["page"]["nodes"], [], "操作性不覆盖隐藏或屏外证据")
+
+
 # ================================================================== 收尾
 
 shutil.rmtree(TD, ignore_errors=True)

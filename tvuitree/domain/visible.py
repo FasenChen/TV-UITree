@@ -95,7 +95,9 @@ def select_visible(full_json: dict) -> dict:
                     target.append(description.strip())
 
     focused_paths = [path for path, node in entries if node.get("focused") is True]
-    targets = set(labels_by_path) | set(descriptions_by_path) | set(focused_paths)
+    actionable_paths = {path for path, node in entries
+                        if any(node.get(key) is True for key in ("clickable", "long_clickable", "checkable"))}
+    targets = set(labels_by_path) | set(descriptions_by_path) | set(focused_paths) | actionable_paths
     complete = [label for labels in labels_by_path.values() for label in labels
                 if _truncated_prefix(label) is None]
     page_nodes = []
@@ -104,8 +106,9 @@ def select_visible(full_json: dict) -> dict:
         summary = {key: raw[key] for key in
                    ("path", "source", "class", "resource_id", "bounds", "bounds_kind",
                     "actions", "focused", "selected", "checked", "enabled")
-                   if key in raw and (key not in ("focused", "selected", "checked")
-                                      or raw[key] is True)
+                   if key in raw
+                   and (key not in ("focused", "selected") or raw[key] is True)
+                   and (key != "checked" or raw[key] is True or by_path[path].get("checkable") is True)
                    and (key != "enabled" or raw[key] is False)}
         labels = [label for label in labels_by_path.get(path, [])
                   if not (prefix := _truncated_prefix(label))
@@ -114,7 +117,7 @@ def select_visible(full_json: dict) -> dict:
             summary["labels"] = labels
         elif descriptions_by_path.get(path):
             summary["accessibility_labels"] = descriptions_by_path[path]
-        if labels or path in focused_paths or "accessibility_labels" in summary:
+        if labels or path in focused_paths or "accessibility_labels" in summary or path in actionable_paths:
             page_nodes.append(summary)
 
     if len(focused_paths) == 1:
