@@ -4,6 +4,8 @@
 
 项目通过根目录唯一的 main.py 启动，没有打包或构建步骤。
 
+实施计划、评审报告和交付记录统一见 [项目文档索引](docs/README.md)。
+
 ## 快速开始
 
 需要 Python 3.10+、ADB 和已开启 ADB 调试的 TV。在仓库根目录执行：
@@ -289,7 +291,7 @@ python main.py shot --json full.json --source both --out focus.png
 python scripts/bench_screencap.py 192.168.1.148 --count 50
 ```
 
-`full` 是未剪枝的一体式 JSON，`slim` 是对同一份全量树进行剪枝，`observe` 是给模型的焦点与页面摘要，`visible` 是只覆盖屏幕内控件的精简观察。`--from-json` 应传入已有的全量 JSON，并用于 `tree --mode slim`、`observe` 或 `visible`；已剪掉的信息无法从 `slim` 恢复。`--keep` 只用于 `slim`。`observe` 和 `tree` 可用 `--no-dumpsys` 只采集 a11y；`visible` 始终只采集 a11y。正常双源采集失败时不会悄悄切换到单源结果。CLI 用法或文件错误返回退出码 `2`，设备或采集失败返回 `3`。`--out` 写入是原子的（先写临时文件再替换），失败时原文件保持不变且不留半成品。不传子命令时只显示帮助，不连接 TV。
+`full` 是未剪枝的一体式 JSON，`slim` 是对同一份全量树进行剪枝，`observe` 是给模型的焦点与页面摘要，`visible` 是只覆盖屏幕内控件的精简观察。`--from-json` 应传入已有的全量 JSON，并用于 `tree --mode slim`、`observe` 或 `visible`；已剪掉的信息无法从 `slim` 恢复。`--keep` 只用于 `slim`。`observe` 和 `tree` 可用 `--no-dumpsys` 只采集 a11y；`visible` 始终只采集 a11y。正常双源采集失败时不会悄悄切换到单源结果。`observe`、`tree`、`visible` 的用法、文件或连接错误返回退出码 `2`，连接后的采集失败返回 `3`；`shot` 和 `input` 自身失败返回 `1`，连接失败返回 `2`。`--out` 写普通 JSON 文件时先写同目录临时文件再替换目标，写入或替换失败时旧文件保持完整并清理临时文件；设备输出（如 Windows `NUL`、`os.devnull`）直接写入，不提供普通文件的原子替换保证。不传子命令时只显示帮助，不连接 TV。
 
 `scripts/bench_screencap.py` 压测截图耗时：参数是一个或多个设备 IP（`ip` 或 `ip:port`，未带端口时用 `--port`，默认 `5555`）和 `-n/--count` 次数。每次计时覆盖一次完整截图（发起到 PNG 全部取回并校验），不含连接；逐次打印耗时和 PNG 大小，最后给出 min / mean / p50 / p90 / p99 / max。单次失败会记下原因并继续，Ctrl+C 会打印已完成部分的统计。退出码：`0` 全部成功，`1` 有截图失败，`2` 参数或连接错误，`130` 被中断。每次运行都会写一份 UTF-8 txt 报告（汇总、逐次记录、连接失败），默认在 `_temp/bench_screencap/bench_screencap_<时间>.txt`，可用 `--report <路径>` 指定；中断时也会写出已完成部分。报告写入失败时退出码为 `2`。
 

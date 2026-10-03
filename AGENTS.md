@@ -42,6 +42,8 @@ Offline tests need no TV, ADB connection, or network. Use Python 3.10+, four-spa
 
 ## Contribution
 
+Store durable guides, implementation plans, reviews, and delivery/validation reports under `docs/`; use `docs/superpowers/plans/`, `docs/reviews/`, and `docs/reports/` respectively, and update `docs/README.md`. Keep raw device captures, PNG/JSON artifacts, logs, golden files, and temporary verification scripts in ignored `_temp/`. Reports may link to local evidence, but must be readable without it and must not archive local device addresses or sensitive output. `.omo/` is internal tool state; archive formal plans under `docs/`.
+
 Inspect `git status` before editing and preserve unrelated local changes, especially device configuration. Commit completed, validated phases separately with concise imperative subjects when commits are requested. Explain behavior changes and validation results in pull requests, with before/after JSON or screenshots for geometry or rendering changes. Push or merge only when the user has authorized the destination and scope.
 
 `AGENTS.md` is the shared project guidance for coding agents. `CLAUDE.md` imports it for Claude Code; update this file instead of maintaining two divergent rule sets.
