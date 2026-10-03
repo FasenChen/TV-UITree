@@ -119,14 +119,14 @@ python main.py observe --from-json full.json --out observe.json
 
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
-| `no_connect` | boolean | `false` | 为 `true` 时不执行 `adb connect`，但仍会检查目标是否已经出现在 `adb devices` 中。适合已提前连接的设备。 |
+| `no_connect` | boolean | `false` | 为 `true` 时不执行 `adb connect`，但仍会查询 `adb devices`，且只接受目标状态为 `device`；`offline` 和 `unauthorized` 不视为可用连接。适合已提前连接的设备。 |
 | `no_dumpsys` | boolean | `false` | `observe_tv` 和 `get_full_tree` 使用。为 `true` 时只读取 uiautomator2 无障碍树；为 `false` 时同时读取 `dumpsys activity top`，用于补充 View 节点和 R0–R3 配对证据。 |
 
 `get_current_focus` 和 `get_focus_screenshot` 按默认配置连接 TV，只读取焦点所需的 a11y 树，不提供这两个诊断参数。需要双源诊断时使用 `observe_tv` 或 `get_full_tree`。
 
 `set_default_device` 把 `TV_IP_Address` 写进 `config.json`；传入 `port` 时一并修改，省略时保留原端口，`adb` 等其他字段不变。校验规则与连接参数相同，非法值不会写入。写入是原子的，失败时原文件保持不变。配置在每次连接时重新读取，切换后无需重启 MCP 服务。工具只改配置、不执行 `adb connect`；成功返回 `previous`、`current` 和 `config_path`，失败返回 `error` 与 `error_type`。`config.json` 受 git 跟踪，切换后不要把本机设备地址提交进仓库。
 
-`get_visible` 与 `python main.py visible` 共用同一观察服务，只采集 a11y，输出 `tv-visible/v1`。结构类似 `observe_tv`：`focus.status` 给出焦点状态，找到唯一焦点时 `focus.path` 指向 `page.nodes` 中的节点；`page.nodes` 包含屏幕内有内容或焦点的控件摘要，提供标签、原始树路径、屏幕坐标及可用操作。同一可操作行的标题和值合并为一个节点；无内容的布局容器不返回。无显示文字的可操作图标若有 `content_desc`，会以 `accessibility_labels` 标出，避免把无障碍描述误认为屏幕文字。只依据 a11y 的 `bounds_screen` 读数、可见属性及屏幕交集判断，保留部分进入屏幕的节点；dumpsys 派生坐标不作为当前可见的证明。省略号摘要与完整文本同时出现时，只保留完整文本。输出不包含完整树、R0–R3 诊断统计或截图 OCR，因此不能证明像素遮挡。连接或采集失败时返回 `mode=visible` 与 `error`，异常时另含 `error_type`。
+`get_visible` 与 `python main.py visible` 共用同一观察服务，只采集 a11y，输出 `tv-visible/v1`。结构类似 `observe_tv`：`focus.status` 给出焦点状态，找到唯一焦点时 `focus.path` 指向 `page.nodes` 中的节点；`page.nodes` 包含屏幕内有内容或焦点的控件摘要，提供标签、原始树路径、屏幕坐标及可用操作。同一可操作行的标题和值合并为一个节点；无内容的布局容器不返回。无显示文字的可操作图标若有 `content_desc`，会以 `accessibility_labels` 标出，避免把无障碍描述误认为屏幕文字。只依据 a11y 的 `bounds_screen` 读数、可见属性及屏幕交集判断，保留部分进入屏幕的节点；dumpsys 派生坐标不作为当前可见的证明。省略号摘要与完整文本同时出现时，只保留完整文本。输出不包含完整树、R0–R3 诊断统计或截图 OCR，因此不能证明像素遮挡。无显示文字但有 `clickable`、`long_clickable` 或 `checkable` 明确读数的控件，也会保留已有资源 ID、坐标和操作信息；开关的 `checked=false` 是未选状态，`enabled=false` 是明确的禁用读数。缺失状态保持未知，不补成 false，也不编造文字标签。连接或采集失败时返回 `mode=visible` 与 `error`，异常时另含 `error_type`。
 
 例如焦点位于 IP address 行时，精简结果的主要部分如下（`path` 和坐标以当次采集为准）：
 
@@ -261,7 +261,7 @@ npx -y @modelcontextprotocol/inspector .\.venv\Scripts\python.exe .\main.py mcp
 | Working directory | 仓库根目录 |
 | Environment | 通常留空；默认设备地址从仓库根目录的 `config.json` 读取 |
 
-连接成功后，在工具列表中选择所需的四个工具。临时覆盖目标电视时可以这样填写参数：
+连接成功后，在工具列表中选择所需的工具。临时覆盖目标电视时可以这样填写参数：
 
 ```json
 {
@@ -293,6 +293,8 @@ python scripts/bench_screencap.py 192.168.1.148 --count 50
 
 `full` 是未剪枝的一体式 JSON，`slim` 是对同一份全量树进行剪枝，`observe` 是给模型的焦点与页面摘要，`visible` 是只覆盖屏幕内控件的精简观察。`--from-json` 应传入已有的全量 JSON，并用于 `tree --mode slim`、`observe` 或 `visible`；已剪掉的信息无法从 `slim` 恢复。`--keep` 只用于 `slim`。`observe` 和 `tree` 可用 `--no-dumpsys` 只采集 a11y；`visible` 始终只采集 a11y。正常双源采集失败时不会悄悄切换到单源结果。`observe`、`tree`、`visible` 的用法、文件或连接错误返回退出码 `2`，连接后的采集失败返回 `3`；`shot` 和 `input` 自身失败返回 `1`，连接失败返回 `2`。`--out` 写普通 JSON 文件时先写同目录临时文件再替换目标，写入或替换失败时旧文件保持完整并清理临时文件；设备输出（如 Windows `NUL`、`os.devnull`）直接写入，不提供普通文件的原子替换保证。不传子命令时只显示帮助，不连接 TV。
 
+`--from-json` 在文件入口校验节点、子树、矩形和屏幕等实际消费的结构；保留合法稀疏数据及未知字段。损坏的 a11y XML 会报告采集失败，合法空 hierarchy 仍可以生成空树。`input` 在连接前验证整个键码序列，允许短名、`KEYCODE_*` 标识符和 ASCII 数字；含空格或 shell 元字符的非法键码返回 `2`，不会先发送合法前半段。实际 ADB 发送失败和 `shot` 图片解码、绘制或写入失败会输出中文说明并返回 `1`；`shot` 的 JSON/图片读取失败也保留返回 `1`。
+
 `scripts/bench_screencap.py` 压测截图耗时：参数是一个或多个设备 IP（`ip` 或 `ip:port`，未带端口时用 `--port`，默认 `5555`）和 `-n/--count` 次数。每次计时覆盖一次完整截图（发起到 PNG 全部取回并校验），不含连接；逐次打印耗时和 PNG 大小，最后给出 min / mean / p50 / p90 / p99 / max。单次失败会记下原因并继续，Ctrl+C 会打印已完成部分的统计。退出码：`0` 全部成功，`1` 有截图失败，`2` 参数或连接错误，`130` 被中断。每次运行都会写一份 UTF-8 txt 报告（汇总、逐次记录、连接失败），默认在 `_temp/bench_screencap/bench_screencap_<时间>.txt`，可用 `--report <路径>` 指定；中断时也会写出已完成部分。报告写入失败时退出码为 `2`。
 
 `slim` 默认启用八个剪枝开关：
@@ -321,7 +323,7 @@ Android 16 的 ViewDebug 可能把外层名称写成 `DecorView{...}[MainSetting
 | 规则 | 依据 |
 |---|---|
 | R0 | 两侧唯一根节点 |
-| R1 | 预测可见矩形、资源 ID 和类名条件同时满足，且候选唯一 |
+| R1 | 预测可见矩形、资源 ID 和类名条件同时满足，且双方候选都唯一 |
 | R2 | 两侧各有唯一焦点节点，且类名条件满足 |
 | R3 | 已配对的父节点下，子节点保序映射只有唯一解 |
 
