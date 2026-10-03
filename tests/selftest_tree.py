@@ -2280,6 +2280,104 @@ for _cmd in ([["observe"], str(_ok_out)],
     t.ok(b"Traceback" not in _proc.stderr,
          f"{_args[0]} 的 --out 写失败无 traceback", repr(_proc.stderr))
 
+# ================================================================== 16. ADB 属性与连接语义
+
+t.group("16. props() 拒绝串位的设备属性")
+
+class _FakeAdbPopen:
+    """按命令名分派的 Adb 假件：重写 _popen，不用位置队列。
+
+    为什么必须按命令名分派：_reconnect 的修复会在其内部新增一次 devices 调用，
+    位置响应队列会因此失同步并抛 IndexError，让顺序自检整场中止。
+    """
+
+    def __init__(self, responses: dict, offline_once: bool = False) -> None:
+        self._responses = dict(responses)
+        self._offline_once = offline_once
+        self.calls: list = []
+
+    def _popen(self, args: list, timeout: float = 30.0, binary: bool = False,
+               heal: bool = True):
+        name = args[0] if args else ""
+        self.calls.append(list(args))
+        if self._offline_once:
+            self._offline_once = False
+            return 1, b"", b"error: device offline\n"
+        item = self._responses.get(name, (0, b"", b""))
+        if isinstance(item, BaseException):
+            raise item
+        rc, out, err = item
+        if binary:
+            return rc, out, err
+        # 与真实 _popen 的契约一致：binary=False 时返回解码后的 str
+        return rc, out.decode("utf-8", errors="replace"), err.decode("utf-8", errors="replace")
+
+def _fake_adb(responses: dict, serial: str = "1.2.3.4:5555",
+              offline_once: bool = False, auto_connect: bool = True) -> adb.Adb:
+    device = adb.Adb("adb", serial, auto_connect=auto_connect)
+    device._popen = _FakeAdbPopen(responses, offline_once)._popen
+    return device
+
+_PROP_KEYS = ["ro.product.manufacturer", "ro.product.model", "ro.product.device",
+              "ro.build.version.release", "ro.build.version.sdk",
+              "ro.build.version.incremental", "ro.product.cpu.abilist",
+              "ro.build.type"]
+
+# 正常：8 个键 8 行，逐一对应
+_good = "\n".join(["Google", "Chromecast", "glen", "14", "34", "ABC123",
+                   "arm64-v8a", "user"]) + "\n"
+_dev_good = _fake_adb({"shell": (0, _good.encode("utf-8"), b"")}).props()
+t.eq(_dev_good.get("ro.product.manufacturer"), "Google", "manufacturer 对位正确")
+t.eq(_dev_good.get("ro.product.model"), "Chromecast", "model 对位正确")
+t.eq(_dev_good.get("ro.build.type"), "user", "最后一个键对位正确")
+t.eq(len(_dev_good), len(_PROP_KEYS), "返回全部 8 个键")
+
+# 部分 prop 未设置：getprop 仍各输出一行（空行），对位必须保持
+_with_blank = "\n".join(["Google", "", "glen", "14", "34", "", "arm64-v8a", "user"]) + "\n"
+_dev_blank = _fake_adb({"shell": (0, _with_blank.encode("utf-8"), b"")}).props()
+t.eq(_dev_blank.get("ro.product.model"), "", "未设置的 prop 得到空串，且不挤掉后面的值")
+t.eq(_dev_blank.get("ro.product.device"), "glen", "空值之后的键仍然对位")
+t.eq(_dev_blank.get("ro.build.version.incremental"), "", "第二个空值也对位")
+t.eq(_dev_blank.get("ro.product.cpu.abilist"), "arm64-v8a", "abilist 没被空值挤位")
+
+# 串位：行数与键数不符时必须抛 AdbError，绝不返回错位的值
+_short = "\n".join(["Google", "Chromecast", "glen", "14", "34", "arm64-v8a"]) + "\n"
+_raised_short = None
+try:
+    _fake_adb({"shell": (0, _short.encode("utf-8"), b"")}).props()
+except Exception as error:            # 宽捕获后 isinstance：避免中止整场
+    _raised_short = error
+t.ok(isinstance(_raised_short, adb.AdbError),
+     "行数少于键数时抛 AdbError（不是静默串位）", f"实际 {type(_raised_short).__name__}")
+
+_long = "\n".join(["Google", "Chromecast", "glen", "14", "34", "ABC", "arm64", "user",
+                   "EXTRA"]) + "\n"
+_raised_long = None
+try:
+    _fake_adb({"shell": (0, _long.encode("utf-8"), b"")}).props()
+except Exception as error:
+    _raised_long = error
+t.ok(isinstance(_raised_long, adb.AdbError),
+     "行数多于键数时也抛 AdbError（多余行不得静默丢弃）",
+     f"实际 {type(_raised_long).__name__}")
+
+# rc != 0 时抛 AdbError
+_raised_rc = None
+try:
+    _fake_adb({"shell": (1, b"", b"error: device offline\n")}).props()
+except Exception as error:
+    _raised_rc = error
+t.ok(isinstance(_raised_rc, adb.AdbError),
+     "getprop 返回非 0 时抛 AdbError", f"实际 {type(_raised_rc).__name__}")
+
+# 降级契约：snapshot 只捕 AdbError，所以 props 抛 AdbError 时 device 变成诚实的 {}
+_snap_dev = {}
+try:
+    _snap_dev = _fake_adb({"shell": (0, _short.encode("utf-8"), b"")}).props()
+except adb.AdbError:
+    _snap_dev = {}
+t.eq(_snap_dev, {}, "串位时降级为空 dict（与设备不可达同一形状），不给出错值")
+
 # ================================================================== 收尾
 
 shutil.rmtree(TD, ignore_errors=True)

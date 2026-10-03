@@ -136,12 +136,25 @@ class Adb:
 
     # ---- 基础信息 ----
     def props(self) -> dict:
+        """读取设备属性；行数与键数不符时明确报错，绝不返回串位的值。
+
+        `getprop <key>` 对未设置的键也输出恰好一行（空行），所以不能过滤空行：
+        一过滤，后面的值就整体前移，model 会静默变成 device 的值 —— 而 device
+        字段是模型和人工排查的共同证据，串位比缺失更伤信任。
+        用 shell_raw 只取 stdout：shell() 会把非空 stderr 追加进来，污染行数。
+        """
         keys = ["ro.product.manufacturer", "ro.product.model", "ro.product.device",
                 "ro.build.version.release", "ro.build.version.sdk",
                 "ro.build.version.incremental", "ro.product.cpu.abilist", "ro.build.type"]
-        out = self.shell(";".join(f"getprop {k}" for k in keys))
-        vals = [ln.strip() for ln in out.splitlines() if ln.strip()]
-        return dict(zip(keys, vals + [""] * len(keys)))
+        rc, out, err = self.shell_raw(";".join(f"getprop {k}" for k in keys), timeout=30)
+        if rc != 0:
+            raise AdbError(f"getprop 失败（exit={rc}）：{(err or out).strip()}")
+        vals = [ln.strip() for ln in out.splitlines()]
+        if len(vals) != len(keys):
+            raise AdbError(
+                f"getprop 返回 {len(vals)} 行，与请求的 {len(keys)} 个键不符；"
+                "拒绝按行序配对，避免设备属性串位")
+        return dict(zip(keys, vals))
 
     def screen(self) -> dict:
         """wm size / wm density → {width, height, physical, override, density}
