@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import io
-import json
 import os
 import tempfile
 
@@ -24,14 +23,6 @@ def focus_border_width(png_bytes: bytes) -> int:
         return 6
     height = int.from_bytes(png_bytes[20:24], "big")
     return max(1, round(height / 180))
-
-
-def load_tree(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as source:
-        obj = json.load(source)
-    if not isinstance(obj, dict) or not isinstance(obj.get("tree"), list):
-        raise ValueError(f"{path} 里没有 tree，不像是本工具输出的控件树 JSON。")
-    return obj
 
 
 def _band(dr, x0: int, y0: int, x1: int, y1: int, color, dashed: bool):

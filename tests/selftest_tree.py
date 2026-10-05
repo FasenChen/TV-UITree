@@ -60,7 +60,8 @@ from tvuitree.domain import component, observation as domain_observation, screen
 from tvuitree.domain.tree import models, parsing, matching, capture, output as tree_output, pruning
 from tvuitree.application import input as remote_input, observation as application_observation
 from tvuitree.infrastructure import adb, image
-from tvuitree.interfaces import (cli, connection, terminal, timing, observe as observe_interface,
+from tvuitree.interfaces import (cli, connection, terminal, timing, json_io,
+                                observe as observe_interface,
                                 tree as tree_interface, visible as visible_interface)
 
 
@@ -985,7 +986,7 @@ t.ok(any("中心不重合" in x for x in ln2), "不成等比时要指出是中�
 t.ok(any("滚动偏移" in x for x in ln2), "不成等比时要指向可查的原因（溢出告警）")
 t.ok(any("不改" in x and "补偿" in x for x in ln2),
      "说明里要写死「不改读数、不补偿」——这是本脚本的立场")
-t.eq(image.load_tree(FULL_PATH)["mode"], "full", "load_tree 能读回自己写出的 JSON")
+t.eq(json_io.load_full_json(FULL_PATH)["mode"], "full", "load_full_json 能读回自己写出的 JSON")
 
 bad_json_cases = [
     ("missing", None, OSError),
@@ -1002,11 +1003,11 @@ for label, contents, expected_error in bad_json_cases:
             source.write(contents)
     raised = None
     try:
-        image.load_tree(source_path)
+        json_io.load_full_json(source_path)
     except (Exception, SystemExit) as error:
         raised = error
     t.ok(isinstance(raised, expected_error),
-         f"load_tree 的 {label} 输入抛 {expected_error.__name__}",
+         f"load_full_json 的 {label} 输入抛 {expected_error.__name__}",
          f"实际 {type(raised).__name__}: {raised}")
     if label in ("array", "null", "no_tree", "wrong_tree"):
         t.ok("tree" in str(raised), f"{label} 错误说明树结构不合法")
@@ -2053,7 +2054,6 @@ def _read(rel: str) -> str:
     with open(os.path.join(HERE, rel), "r", encoding="utf-8") as source:
         return source.read()
 
-from tvuitree.interfaces import json_io
 _buf = io.StringIO()
 _out = os.path.join(TD, "emit_zh.json")
 with contextlib.redirect_stderr(_buf):
@@ -2113,7 +2113,6 @@ t.ok(hasattr(screenshot, "to_pixel") and hasattr(screenshot, "scale_factors"),
      "像素换算是公开函数")
 t.ok(not hasattr(screenshot, "_px") and not hasattr(screenshot, "_scale_factors"),
      "不再导出 _px / _scale_factors")
-from tvuitree.interfaces import json_io
 t.ok(hasattr(json_io, "emit_json") and hasattr(json_io, "load_full_json"),
      "JSON 读写是公开函数")
 t.ok(not hasattr(json_io, "_emit") and not hasattr(json_io, "_load_full"),
