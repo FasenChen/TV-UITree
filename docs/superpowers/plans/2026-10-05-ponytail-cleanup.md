@@ -530,3 +530,5 @@ git status --short
 执行位置为 Codex 管理的 ponytail-cleanup worktree；原主目录生产代码没有改动。本次实施没有提交、推送或合并。执行裁定、终审和实质限制见[交付报告](../../reports/2026-10-05-ponytail-cleanup-delivery.md)。开头和 Global Constraints 中的“本次只交付计划”记载计划编写时的范围，后续实施授权及状态以本节为准。
 
 后续授权与提交：用户于 2026-10-05 要求推送并合并到 main，条件提交步骤已获得授权并完成四个阶段代码提交：d0801db、bce9f05、1799615、04e1e2c。文档随本次归档提交，来源分支 codex/ponytail-cleanup；实际发布与 main 合并结果以远端记录为准。上述未提交状态属于实施/终审时的历史记录。
+
+发布核验：远端 main 已由 a220fc2 快进至 46a9922，与整改分支一致。GitHub 连接器无创建 PR 权限（403），按用户的 main 整合授权改用普通 Git 快进推送；未使用强制推送。

@@ -4,7 +4,7 @@
 
 ## 交付状态
 
-4 项实施任务已完成，7 条原审查建议全部落地。代码与测试在 Codex 管理的隔离 worktree 完成实施，隔离执行阶段未改动原 `D:\Code\tv-uitree` 的生产代码。用户随后授权提交、推送并合并到 main；4 个代码阶段已分别提交到 `codex/ponytail-cleanup`，提交记录见后文。依赖和配置未修改。
+4 项实施任务已完成，7 条原审查建议全部落地。代码与测试在 Codex 管理的隔离 worktree 完成实施，隔离执行阶段未改动原 `D:\Code\tv-uitree` 的生产代码。用户随后授权提交、推送并合并到 main；4 个代码阶段及文档归档已提交，远端 main 已快进至 `46a9922`，提交记录见后文。依赖和配置未修改。
 
 工作位置：`C:\Users\FashionChen\.codex\worktrees\ponytail-cleanup\tv-uitree`。
 
@@ -70,4 +70,6 @@
 | 删除重复加载器 | 1799615，refactor(image): 移除重复 JSON 加载入口 |
 | 内存 PNG 渲染 | 04e1e2c，refactor(image): 使用内存缓冲渲染 PNG |
 
-文档另行归档提交，纳入同一 PR。发布前完整自检 1140 条通过，py_compile、pyflakes、help、tree --prune-list 和 git diff --check 均退出 0。远端是否已合并以及合并 SHA 以 GitHub PR 和 origin/main 的实际记录为准，不将发布授权当作合并结果。
+文档已另行提交为 `46a9922`。创建 PR 的 GitHub 连接器返回 403（Resource not accessible by integration），因此使用已授权的 Git 普通快进推送完成 main 整合，没有创建 PR。发布前完整自检 1140 条通过，py_compile、pyflakes、help、tree --prune-list 和 git diff --check 均退出 0。已通过远端引用核对，`origin/main` 与 `origin/codex/ponytail-cleanup` 同为 `46a9922746dcca3c243052b6d8ad62ac0eb41187`。本文的整合记录随后作为文档补记提交；实际最新 SHA 以远端 Git 引用为准。
+
+网络交接：两次直接 HTTPS 推送失败后，读取系统现有代理并仅对 Git 命令指定代理，推送成功。没有修改系统代理或 Git 持久配置，没有强制推送。

@@ -8,7 +8,7 @@
 |---|---|
 | [Ponytail 全项目复杂度审查（2026-10-05）](reviews/2026-10-05-ponytail-audit.md) | 针对 a220fc2 的复杂度审查，列出 7 项删除或简化建议；1087 条基线自检通过；建议尚未实施 |
 | [Ponytail 审查复核（2026-10-05）](reviews/2026-10-05-ponytail-audit-review.md) | 复核确认 7 项均有依据，修订截图替换方式，明确遍历顺序、测试迁移及接口边界；代码未修改 |
-| [Ponytail 清理实施计划](superpowers/plans/2026-10-05-ponytail-cleanup.md) | 隔离 worktree 的 4 项实施已完成，1140 条自检通过；独立终审完成，代码已分阶段提交，用户已授权发布与合并 |
+| [Ponytail 清理实施计划](superpowers/plans/2026-10-05-ponytail-cleanup.md) | 隔离 worktree 的 4 项实施已完成，1140 条自检通过；独立终审完成，代码已分阶段提交并快进整合至 main |
 | [Ponytail 清理交付与验证](reports/2026-10-05-ponytail-cleanup-delivery.md) | 7 项建议的实施、分阶段验证和执行裁定；无生产代码终审问题，索引缺陷已修复 |
 | [Ponytail 清理独立终审](reviews/2026-10-05-ponytail-cleanup-final-review.md) | 独立核对 5 类 Review Focus；唯一文档导航问题已修复，仓外调用、真机与性能测量边界保留 |
 
