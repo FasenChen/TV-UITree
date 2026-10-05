@@ -13,7 +13,7 @@ from .models import (
 # ------------------------------------------------------------------ 解析 dumpsys 视图树
 
 
-def parse_node_line(text: str, lineno: int, indent: int,
+def parse_node_line(text: str, lineno: int,
                     anomalies: Optional[list] = None) -> Optional[Node]:
     m = NODE_RE.match(text) or NODE_RE_POST_NAME.match(text)
     if not m:
@@ -103,7 +103,7 @@ def parse_dumpsys_top(raw: str, anomalies: Optional[list] = None) -> list:
                 if ind % DUMP_INDENT_UNIT:
                     record_anomaly(i + 1, cur,
                              f"缩进 {ind} 不是 {DUMP_INDENT_UNIT} 的整数倍，树层级可能错位", target)
-                node = parse_node_line(cur.lstrip(" ").rstrip(), i + 1, ind, target)
+                node = parse_node_line(cur.lstrip(" ").rstrip(), i + 1, target)
                 if node is None or ind < 4:
                     break
                 if base_indent is None:
@@ -146,7 +146,7 @@ def pick_block(blocks: list, component: Optional[str]) -> tuple:
     return blocks[-1], note
 
 
-def iter_nodes(roots: Iterable[Node]) -> Iterable[Node]:
+def iter_nodes(roots: Iterable[Node | U2Node]) -> Iterable[Node | U2Node]:
     stack = list(roots)
     while stack:
         n = stack.pop()

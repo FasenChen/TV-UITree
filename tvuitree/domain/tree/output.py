@@ -139,8 +139,7 @@ def build_full_json(u2_roots: list, view_roots: list, u2_meta: dict, dev: dict,
         o["children"] = [view_only_json(ch) for ch in n.children if id(ch) in unpaired]
         return o
 
-    uni = build_unified(u2_roots, view_roots, _scr) if show_dumpsys else \
-        build_unified(u2_roots, [], None)
+    uni = build_unified(u2_roots, _scr if show_dumpsys else None)
 
     drift = bool(snap and snap.get("drift"))
     out = {

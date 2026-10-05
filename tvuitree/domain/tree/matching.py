@@ -39,7 +39,7 @@ def intersect(a: Optional[tuple], b: Optional[tuple]) -> Optional[tuple]:
     return (l, t, r, bo)
 
 
-def _clip_ancestors(node: Node) -> Optional[tuple]:
+def clip_to_chain(node: Node) -> Optional[tuple]:
     own = absolute_bounds(node)
     if own is None:
         return None
@@ -53,16 +53,12 @@ def _clip_ancestors(node: Node) -> Optional[tuple]:
     return r
 
 
-def clip_to_chain(node: Node) -> Optional[tuple]:
-    return _clip_ancestors(node)
-
-
 def pred_visible_rect(node: Node, screen: Optional[tuple]) -> Optional[tuple]:
     """view 节点的**预测可见矩形**：自身累加矩形 ∩ 各祖先累加矩形 ∩ 屏幕。
 
     纯几何计算，不含阈值、不含推测。它成立与否由 R1 与实际 a11y bounds 比对直接验证。
     """
-    r = _clip_ancestors(node)
+    r = clip_to_chain(node)
     if screen:
         r = intersect(r, screen)
     return r
@@ -107,12 +103,7 @@ def resid_ok(v: Node, u: U2Node, pkg: Optional[str]) -> bool:
 
 
 def u2_all(roots: list) -> list:
-    out, stack = [], list(roots)
-    while stack:
-        n = stack.pop()
-        out.append(n)
-        stack.extend(reversed(n.children))
-    return out
+    return list(iter_nodes(roots))
 
 
 def find_u2_focus(roots: list) -> list:
@@ -184,7 +175,6 @@ def align(u2_roots: list, view_roots: list, pkg: Optional[str],
     st.view_nodes = len(v_nodes)
 
     pred = {id(v): pred_visible_rect(v, screen) for v in v_nodes}
-    pred_noscreen = {id(v): clip_to_chain(v) for v in v_nodes}
 
     paired_u, paired_v = {}, {}
 
@@ -245,18 +235,10 @@ def align(u2_roots: list, view_roots: list, pkg: Optional[str],
         st.by_reason[u.match_reason] = st.by_reason.get(u.match_reason, 0) + 1
         if class_ok(v, u)[1]:
             st.class_substituted += 1
-        # 几何三档：判据是「未裁剪的累加布局矩形」与「a11y 屏幕读数」的关系
-        av = absolute_bounds(v)
-        p = pred[id(v)]
-        pc = pred_noscreen[id(v)]
-        if av is None or u.bounds is None:
-            st.geom_na += 1
-        elif av == u.bounds:
-            st.geom_exact += 1
-        elif pc == u.bounds or p == u.bounds:
-            st.geom_clip += 1
-        else:
-            st.geom_drift += 1
+        # 统计与节点输出共用几何分级。
+        grade = geom_of(u, screen)
+        field = f"geom_{grade}"
+        setattr(st, field, getattr(st, field) + 1)
 
     # 哪些 dumpsys 独有节点会被并入主树？判据只有一个：merge_children()。
     # 再做一次闭包：已并入节点的整棵子树内部顺序完全由 view 树决定，无歧义。
@@ -368,8 +350,7 @@ def geom_of(u: U2Node, screen: Optional[tuple]) -> str:
     return "drift"
 
 
-def build_unified(u2_roots: list, view_roots: list,
-                  screen: Optional[tuple]) -> list:
+def build_unified(u2_roots: list, screen: Optional[tuple]) -> list:
     """建一体式树：a11y 树为骨架，把位次已确定的 view 独有节点插入。
 
     每层子节点顺序由 merge_children() 唯一给出；拿不到顺序就不插入那层的独有节点

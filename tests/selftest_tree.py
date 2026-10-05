@@ -379,7 +379,7 @@ t.eq(root.cls, "DecorView", "根类名不带包名（DecorView@hash[Name] 形式
 t.eq(root.oname, "MainActivity", "根节点 [] 内的名字")
 post_name = parsing.parse_node_line(
     "com.android.internal.policy.DecorView{e99bd3f I.ED..... R.....ID "
-    "0,0-1920,1080 aid=0}[MainSettings]", 1, 6)
+    "0,0-1920,1080 aid=0}[MainSettings]", 1)
 t.eq(post_name.oname if post_name else None, "MainSettings",
      "Android 16 的 DecorView{...}[Name] 后置名字格式")
 t.eq(root.bounds, None, "根节点**没有** bounds —— dumper 就是这么写的")
@@ -568,7 +568,7 @@ t.eq((st_uni.paired, st_uni.seq_refused), (2, []),
 
 t.group("4. 统一树与全量 JSON")
 
-uni = matching.build_unified(FX["u2_roots"], FX["view_roots"], SCR)
+uni = matching.build_unified(FX["u2_roots"], SCR)
 t.eq(len(uni), 1, "统一树只有 1 个根")
 uni_flat: list = []
 
@@ -2097,8 +2097,7 @@ t.eq(list(inspect.signature(matching.clip_to_chain).parameters), ["node"],
 t.eq(list(inspect.signature(capture.run_align).parameters), ["snap"],
      "run_align 不再接收未使用的 quiet")
 t.eq(list(inspect.signature(matching.build_unified).parameters),
-     ["u2_roots", "view_roots", "screen"],
-     "build_unified 不再接收未使用的 AlignStats")
+     ["u2_roots", "screen"], "build_unified 只接收实际使用的树和屏幕")
 from typing import get_type_hints
 from collections.abc import Iterator
 hints = get_type_hints(remote_input.send_sequence)
@@ -3023,6 +3022,37 @@ cleanup_summary = domain_observation.summarize_full_json({"tree": [{}]}, max_nod
 t.eq(cleanup_summary["focus"]["status"], "missing", "无读数不猜测焦点")
 t.eq(cleanup_summary["page"]["nodes"][0]["path"], "0", "无有意义节点保留首节点回退")
 t.eq(cleanup_summary["page"]["summary_truncated"], False, "回退不误报截断")
+
+
+
+t.group("35. Ponytail 清理：几何四档与多根顺序")
+cleanup_screen = (0, 0, 100, 100)
+cleanup_geom_cases = [
+    ("exact", (5, 5, 20, 20), (5, 5, 20, 20), None),
+    ("clip", (0, 0, 50, 50), (-5, -5, 60, 60), (0, 0, 50, 50)),
+    ("clip", (0, 0, 100, 100), (-5, -5, 120, 120), None),
+    ("drift", (6, 6, 20, 20), (5, 5, 20, 20), None),
+    ("na", None, (5, 5, 20, 20), None),
+    ("na", (5, 5, 20, 20), None, None),
+]
+for cleanup_grade, cleanup_reading, cleanup_layout, cleanup_parent in cleanup_geom_cases:
+    cleanup_v = models.Node(cls="android.view.View", bounds=cleanup_layout)
+    if cleanup_parent is not None:
+        cleanup_v.parent = models.Node(cls="android.view.View", bounds=cleanup_parent)
+    cleanup_u = models.U2Node(raw={}, cls=cleanup_v.cls, bounds=cleanup_reading)
+    cleanup_stats = matching.align([cleanup_u], [cleanup_v], None, cleanup_screen)
+    t.eq(matching.geom_of(cleanup_u, cleanup_screen), cleanup_grade, "几何分级保持既有优先级")
+    t.eq(getattr(cleanup_stats, "geom_" + cleanup_grade), 1, "统计与节点分级一致")
+    t.eq(sum(getattr(cleanup_stats, "geom_" + g)
+             for g in ("exact", "clip", "drift", "na")), 1, "一个配对只归属一个几何档")
+    t.eq(cleanup_stats.paired, 1, "统计重构不改变根配对")
+cleanup_first = models.U2Node(raw={}, children=[models.U2Node(raw={}), models.U2Node(raw={})])
+cleanup_last = models.U2Node(raw={}, children=[models.U2Node(raw={})])
+cleanup_order = [cleanup_last, cleanup_last.children[0], cleanup_first, *cleanup_first.children]
+for cleanup_walk in (matching.u2_all, lambda roots: list(parsing.iter_nodes(roots))):
+    cleanup_got = cleanup_walk([cleanup_first, cleanup_last])
+    t.eq([id(n) for n in cleanup_got], [id(n) for n in cleanup_order], "根逆序、孩子原序且身份不变")
+    t.eq(cleanup_walk([]), [], "空树仍是空序列")
 
 
 # ================================================================== 收尾
