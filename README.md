@@ -6,6 +6,12 @@
 
 实施计划、评审报告和交付记录统一见 [项目文档索引](docs/README.md)。
 
+## 下载版本
+
+固定版本见 [GitHub Releases](https://github.com/FasenChen/TV-UITree/releases)。首次版本为 `v0.1.0`，建议下载附件 `tv-uitree-v0.1.0.zip`，其中设备配置和相关文档示例已替换为占位值。解压后先修改 `config.json` 的 `TV_IP_Address`；`adb` 默认设为 `adb`，需要将 ADB 加入 PATH 或填写本机完整路径，再按下方步骤安装依赖。
+
+这是源码运行包，需要 Python 和 ADB。版本范围、检查结果和后续发布步骤见 [v0.1.0 发布记录](docs/reports/2026-10-05-v0.1.0-release.md)。
+
 ## 快速开始
 
 需要 Python 3.10+、ADB 和已开启 ADB 调试的 TV。在仓库根目录执行：
