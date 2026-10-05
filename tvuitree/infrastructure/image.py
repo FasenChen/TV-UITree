@@ -5,8 +5,6 @@
 from __future__ import annotations
 
 import io
-import os
-import tempfile
 
 from tvuitree.domain.screenshot import to_pixel, scale_factors
 
@@ -76,8 +74,8 @@ def _cross(dr, rect: tuple, color):
     _band(dr, cx2 // 2, y0, cx2 - cx2 // 2, y1, color, False)
 
 
-def draw_boxes(png_bytes: bytes, boxes: list, out_path: str,
-               screen: dict, width: int = 1, show_details: bool = True) -> tuple:
+def _draw_boxes(png_bytes: bytes, boxes: list, output: str | io.BytesIO,
+                screen: dict, width: int = 1, show_details: bool = True) -> tuple:
     """在截图上画框。返回 (画出数, 未画出数, 提示列表)。
 
     几何约定见文件头注释：**框 = 读数，逐像素对齐**；只用分辨率换算，无偏移、无容差。
@@ -85,8 +83,11 @@ def draw_boxes(png_bytes: bytes, boxes: list, out_path: str,
     try:
         from PIL import Image, ImageDraw
     except ImportError:
-        with open(out_path, "wb") as f:
-            f.write(png_bytes)
+        if isinstance(output, io.BytesIO):
+            output.write(png_bytes)
+        else:
+            with open(output, "wb") as f:
+                f.write(png_bytes)
         return 0, len(boxes), ["未安装 Pillow，只保存了原始截图（画框需 pip install pillow）"]
 
     img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
@@ -165,20 +166,26 @@ def draw_boxes(png_bytes: bytes, boxes: list, out_path: str,
                         f"末像素落在 {img.width - 1}/{img.height - 1}，"
                         f"画出的框在那两条边上比读数少 1 像素 —— "
                         f"这是像素栅格的半开区间约定，不是读数越界，故只给总数")
-    img.save(out_path)
+    if isinstance(output, io.BytesIO):
+        img.save(output, format="PNG")
+    else:
+        img.save(output)
     return drawn, skipped, notes
+
+
+def draw_boxes(png_bytes: bytes, boxes: list, out_path: str,
+               screen: dict, width: int = 1, show_details: bool = True) -> tuple:
+    """按文件扩展名保存画框结果，返回画出数、未画出数和提示。"""
+    return _draw_boxes(png_bytes, boxes, out_path, screen, width, show_details)
 
 
 def draw_boxes_png(png_bytes: bytes, boxes: list, screen: dict,
                    width: int = 1, show_details: bool = True) -> tuple:
     """用同一套画框逻辑渲染，返回 PNG 字节，不留下成品文件。"""
-    with tempfile.TemporaryDirectory(prefix="tv-uitree-focus-") as directory:
-        path = os.path.join(directory, "focus.png")
-        drawn, skipped, notes = draw_boxes(
-            png_bytes, boxes, path, screen, width, show_details=show_details,
-        )
-        with open(path, "rb") as image_file:
-            return image_file.read(), drawn, skipped, notes
+    with io.BytesIO() as output:
+        drawn, skipped, notes = _draw_boxes(
+            png_bytes, boxes, output, screen, width, show_details)
+        return output.getvalue(), drawn, skipped, notes
 
 
 def capture(adb) -> bytes:

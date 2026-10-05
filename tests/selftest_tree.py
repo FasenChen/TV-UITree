@@ -39,6 +39,7 @@ selftest_tree.py — 离线自检：不连设备、不联网、不需要 pytest
 
 from __future__ import annotations
 
+import builtins
 import contextlib
 import importlib.util
 import asyncio
@@ -3052,6 +3053,65 @@ for cleanup_walk in (matching.u2_all, lambda roots: list(parsing.iter_nodes(root
     cleanup_got = cleanup_walk([cleanup_first, cleanup_last])
     t.eq([id(n) for n in cleanup_got], [id(n) for n in cleanup_order], "根逆序、孩子原序且身份不变")
     t.eq(cleanup_walk([]), [], "空树仍是空序列")
+
+
+
+t.group("36. Ponytail 清理：内存画框与文件格式")
+from PIL import Image
+cleanup_source = io.BytesIO()
+Image.new("RGB", (20, 20), (255, 255, 255)).save(cleanup_source, format="PNG")
+cleanup_png = cleanup_source.getvalue()
+cleanup_boxes = [(2, 3, 15, 16, "", "reading")]
+cleanup_screen_dict = {"width": 20, "height": 20}
+cleanup_png_path = Path(TD) / "cleanup-render.png"
+cleanup_file_stats = image.draw_boxes(cleanup_png, cleanup_boxes, str(cleanup_png_path),
+                                      cleanup_screen_dict, width=1, show_details=False)
+cleanup_bytes_result = image.draw_boxes_png(cleanup_png, cleanup_boxes,
+                                           cleanup_screen_dict, width=1, show_details=False)
+t.eq(cleanup_bytes_result[0], cleanup_png_path.read_bytes(), "字节与文件 PNG 完全一致")
+t.eq(cleanup_bytes_result[1:], cleanup_file_stats, "两个入口计数和提示一致")
+with Image.open(io.BytesIO(cleanup_bytes_result[0])) as cleanup_rendered:
+    t.eq(cleanup_rendered.getpixel((2, 3)), image.COLOR_READING, "读数位置有红框")
+    t.eq(cleanup_rendered.getpixel((1, 3)), (255, 255, 255), "外侧一像素保持干净")
+cleanup_jpeg_path = Path(TD) / "cleanup-render.jpg"
+image.draw_boxes(cleanup_png, [], str(cleanup_jpeg_path), cleanup_screen_dict)
+with Image.open(cleanup_jpeg_path) as cleanup_jpeg:
+    t.eq(cleanup_jpeg.format, "JPEG", "文件入口继续按扩展名推断格式")
+
+cleanup_original_import = builtins.__import__
+def cleanup_no_pillow(name: str, *args, **kwargs) -> object:
+    if name == "PIL" or name.startswith("PIL."):
+        raise ImportError("offline no-Pillow check")
+    return cleanup_original_import(name, *args, **kwargs)
+
+with patch("builtins.__import__", side_effect=cleanup_no_pillow):
+    cleanup_fallback_file = image.draw_boxes(cleanup_png, cleanup_boxes,
+                                            str(cleanup_png_path), {})
+    cleanup_fallback_bytes = image.draw_boxes_png(cleanup_png, cleanup_boxes, {})
+t.eq(cleanup_png_path.read_bytes(), cleanup_png, "缺 Pillow 时文件仍保存原图")
+t.eq(cleanup_fallback_bytes[0], cleanup_png, "缺 Pillow 时字节入口仍返回原图")
+t.eq(cleanup_fallback_bytes[1:], cleanup_fallback_file, "缺 Pillow 两个入口的计数和提示相同")
+t.eq(cleanup_fallback_file,
+     (0, 1, ["未安装 Pillow，只保存了原始截图（画框需 pip install pillow）"]),
+     "缺 Pillow 保留既有提示与跳过计数")
+
+cleanup_bad_png_error = None
+try:
+    image.draw_boxes_png(b"invalid PNG", [], cleanup_screen_dict)
+except Exception as cleanup_error:
+    cleanup_bad_png_error = cleanup_error
+t.ok(isinstance(cleanup_bad_png_error, OSError), "非法 PNG 仍抛图像读取错误")
+
+cleanup_io_error = None
+try:
+    with patch("tempfile.TemporaryDirectory", side_effect=AssertionError("disk staging forbidden")):
+        cleanup_memory_result = image.draw_boxes_png(cleanup_png, cleanup_boxes,
+                                                     cleanup_screen_dict, show_details=False)
+except Exception as cleanup_error:
+    cleanup_io_error = cleanup_error
+t.eq(cleanup_io_error, None, "字节画框不需要创建临时目录")
+if cleanup_io_error is None:
+    t.eq(cleanup_memory_result, cleanup_bytes_result, "移除临时目录后结果保持一致")
 
 
 # ================================================================== 收尾
