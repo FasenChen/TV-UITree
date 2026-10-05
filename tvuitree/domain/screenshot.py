@@ -3,13 +3,6 @@
 from __future__ import annotations
 
 
-def walk(nodes: list, parent=None):
-    """(node, parent) 深度优先。"""
-    for n in nodes:
-        yield n, parent
-        yield from walk(n.get("children") or [], n)
-
-
 class JsonNode:
     """给 JSON 节点套一层，缓存 parent，方便做祖先链检查。"""
 

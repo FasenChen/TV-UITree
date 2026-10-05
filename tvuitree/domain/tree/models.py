@@ -8,14 +8,6 @@ from typing import Optional
 
 # ------------------------------------------------------------------ 常量
 
-# a11y XML 的属性全集（uiautomator2 v3 实测 21 个）
-A11Y_ATTRS = (
-    "bounds", "checkable", "checked", "class", "clickable", "content-desc",
-    "display-id", "drawing-order", "enabled", "focusable", "focused", "hint",
-    "index", "long-clickable", "package", "password", "resource-id",
-    "scrollable", "selected", "text", "visible-to-user",
-)
-
 # view 侧类名属这些前缀时视为「框架类」——a11y 不做替换，类名必须相等
 FRAMEWORK_CLS_PREFIXES = (
     "android.widget.", "android.view.", "android.webkit.",
@@ -152,13 +144,6 @@ class Node:
     def short_cls(self) -> str:
         return self.cls.rsplit(".", 1)[-1] if "." in self.cls else self.cls
 
-    @property
-    def label(self) -> str:
-        s = self.short_cls
-        if self.res_id:
-            s += f"#{self.res_id}"
-        return s
-
 
 @dataclass
 class Block:
@@ -206,13 +191,6 @@ class U2Node:
     @property
     def short_cls(self) -> str:
         return self.cls.rsplit(".", 1)[-1] if "." in self.cls else self.cls
-
-    @property
-    def bounds_str(self) -> Optional[str]:
-        if not self.bounds:
-            return None
-        l, t, r, b = self.bounds
-        return f"{l},{t}-{r},{b}"
 
 
 @dataclass

@@ -34,7 +34,7 @@ def _is_true(node: dict, key: str) -> bool:
     return node.get(key) is True
 
 
-def node_summary(node: dict, path: tuple[int, ...], *, include_children: bool = False) -> dict:
+def node_summary(node: dict, path: tuple[int, ...]) -> dict:
     """输出模型真正需要的节点字段，保留读数来源和坐标口径。"""
     result: dict[str, Any] = {
         "path": _path_text(path),
@@ -76,11 +76,6 @@ def node_summary(node: dict, path: tuple[int, ...], *, include_children: bool = 
     children = node.get("children") or []
     if children:
         result["children_count"] = len(children)
-    if include_children:
-        result["children"] = [
-            node_summary(child, path + (index,), include_children=False)
-            for index, child in enumerate(children)
-        ]
     return result
 
 
@@ -163,7 +158,7 @@ def summarize_full_json(full_json: dict, *, max_nodes: int = DEFAULT_MAX_NODES,
 
     candidates = []
     for node, path, _parent in focused:
-        candidates.append(node_summary(node, path, include_children=False))
+        candidates.append(node_summary(node, path))
     if not candidates and candidate_count:
         for index, item in enumerate(top_focus):
             if isinstance(item, dict):
@@ -185,11 +180,9 @@ def summarize_full_json(full_json: dict, *, max_nodes: int = DEFAULT_MAX_NODES,
         focus["reason"] = "当前 a11y 树没有 focused 节点"
 
     page_nodes = []
-    included_paths = set()
     for node, path, _parent in items:
-        if _meaningful(node) and path not in included_paths:
+        if _meaningful(node):
             page_nodes.append(node_summary(node, path))
-            included_paths.add(path)
         if len(page_nodes) >= max_nodes:
             break
     if not page_nodes and items:

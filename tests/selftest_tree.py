@@ -2999,6 +2999,32 @@ for index, coordinates in enumerate([{}, {"bounds_screen": None}]):
     t.ok(output_path.is_file(), "实际 Pillow 处理生成 PNG")
 
 
+
+t.group("34. Ponytail 清理：摘要位置、上限与焦点上下文")
+cleanup_same = {"text": "重复标签", "focused": True,
+                "children": [{"text": "子控件"}]}
+cleanup_full = {"tree": [cleanup_same, cleanup_same]}
+for cleanup_cap, cleanup_paths in [(1, ["0"]), (2, ["0", "0/0"])]:
+    cleanup_summary = domain_observation.summarize_full_json(
+        cleanup_full, max_nodes=cleanup_cap)
+    t.eq([n["path"] for n in cleanup_summary["page"]["nodes"]],
+         cleanup_paths, "摘要按树位置保留顺序和上限")
+    t.eq(cleanup_summary["page"]["summary_truncated"], True, "达到上限报告截断")
+    t.eq(cleanup_summary["focus"]["status"], "ambiguous", "两处 focused 不猜测目标")
+cleanup_summary = domain_observation.summarize_full_json(cleanup_full)
+t.eq([n["path"] for n in cleanup_summary["page"]["nodes"]],
+     ["0", "0/0", "1", "1/0"], "相同标签和相同对象不丢失不同路径")
+cleanup_summary = domain_observation.summarize_full_json({"tree": [cleanup_same]})
+t.eq(cleanup_summary["focus"]["status"], "found", "唯一焦点保留")
+t.eq(cleanup_summary["focus"]["context"]["children"][0]["path"],
+     "0/0", "删子摘要选项后仍保留焦点孩子上下文")
+t.eq(cleanup_summary["focus"]["node"]["children_count"], 1, "保留直接孩子数量")
+cleanup_summary = domain_observation.summarize_full_json({"tree": [{}]}, max_nodes=1)
+t.eq(cleanup_summary["focus"]["status"], "missing", "无读数不猜测焦点")
+t.eq(cleanup_summary["page"]["nodes"][0]["path"], "0", "无有意义节点保留首节点回退")
+t.eq(cleanup_summary["page"]["summary_truncated"], False, "回退不误报截断")
+
+
 # ================================================================== 收尾
 
 shutil.rmtree(TD, ignore_errors=True)

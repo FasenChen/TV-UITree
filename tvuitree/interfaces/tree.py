@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import Optional
 
 from tvuitree.application.observation import collect_full_json
 from tvuitree.domain.tree.pruning import (
@@ -30,7 +29,7 @@ def print_prune_list() -> None:
         print()
 
 
-def _summary(obj: dict, out_path: Optional[str]) -> None:
+def _summary(obj: dict) -> None:
     """把「这次输出里有什么、可信度如何」打到 stderr。"""
     st = obj.get("align_stats") or {}
     nodes = _tree_size(obj.get("tree") or [])
@@ -118,5 +117,5 @@ def run_tree(args: argparse.Namespace) -> int:
     failed = emit_json_checked(result, args.out)
     if failed is not None:
         return failed
-    _summary(result, args.out)
+    _summary(result)
     return 0
