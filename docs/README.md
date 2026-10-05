@@ -14,6 +14,10 @@
 | [Codex 复审补修计划](superpowers/plans/2026-10-03-remediation-follow-up.md) | 针对当前代码的 R1–R5 修复与永久回归计划，执行方式已选为 Codex 本会话顺序实施 |
 | [Codex 复审补修交付报告](reports/2026-10-03-remediation-follow-up-delivery.md) | R1–R5 的本轮补修、864 条自检及 19 个金样精确对比；真实 MCP 错误路径通过，TV 不可达 |
 | [Codex 补修独立终审](reviews/2026-10-03-remediation-follow-up-final-review.md) | 独立终审发现一项测试编码问题，已按 RED→GREEN 闭环；保留明确的未验证边界 |
+| [当前代码质量与架构评审](reviews/2026-10-03-current-code-quality-and-architecture.md) | 针对 c5eb108 的整体只读审查；架构适合现有规模，列出观测语义和边界处理问题，尚未实施修复 |
+| [观测质量补修计划（Codex 执行）](superpowers/plans/2026-10-03-code-quality-remediation-deepseek.md) | Q1–Q9 的三批、十任务执行依据；原 DeepSeek 交接版后改由 Codex 在隔离 worktree 实施，附执行记录 |
+| [观测质量补修交付](reports/2026-10-03-code-quality-remediation-delivery.md) | Q1–Q9 与终审补修、1087 条自检、金样差异、MCP 协议与真机验证边界；已分批提交至隔离分支；尚未合并 |
+| [观测质量补修独立终审](reviews/2026-10-04-code-quality-remediation-final-review.md) | 一次独立终审发现稀疏焦点坐标缺陷，已按 RED→GREEN 关闭；原结论及范围裁定保留 |
 
 ## 注释、命名与结构清理
 

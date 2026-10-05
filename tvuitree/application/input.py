@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
+import re
 import time
 
 KEY_ALIASES = {
@@ -18,15 +19,17 @@ KEY_ALIASES = {
 
 
 def normalize_keycode(name: str) -> str:
-    """'DOWN' / 'dpad_down' / '20' → 'KEYCODE_DPAD_DOWN' / '20'"""
+    """归一化单个键码；非法语法在任何设备操作前拒绝。"""
     k = name.strip()
-    if k.isdigit():
+    if re.fullmatch(r"[0-9]+", k):
         return k
-    k = k.upper()
-    k = KEY_ALIASES.get(k, k)
-    if k.startswith("KEYCODE_"):
-        return k
-    return "KEYCODE_" + k
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", k):
+        raise ValueError(f"非法键码：{name!r}")
+    k = KEY_ALIASES.get(k.upper(), k.upper())
+    code = k if k.startswith("KEYCODE_") else "KEYCODE_" + k
+    if not re.fullmatch(r"KEYCODE_[A-Z0-9][A-Z0-9_]*", code):
+        raise ValueError(f"非法键码：{name!r}")
+    return code
 
 
 def send_key(adb, name: str) -> str | None:
@@ -40,6 +43,7 @@ def send_key(adb, name: str) -> str | None:
 
 
 def send_sequence(adb, keys: list[str], *, delay: float = 0.5, repeat: int = 1, sleep=time.sleep) -> Iterator[tuple[str, str | None]]:
+    keys = [normalize_keycode(key) for key in keys]
     repetitions = max(1, repeat)
     for rep in range(repetitions):
         for index, key in enumerate(keys):

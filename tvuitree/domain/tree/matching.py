@@ -202,15 +202,21 @@ def align(u2_roots: list, view_roots: list, pkg: Optional[str],
     by_rect = {}
     for v in v_nodes:
         r = pred[id(v)]
-        if r is not None:
+        if r is not None and id(v) not in paired_v:
             by_rect.setdefault(r, []).append(v)
+    candidates, reverse_count = {}, {}
     for u in u_nodes:
         if id(u) in paired_u or u.bounds is None:
             continue
-        cands = [v for v in by_rect.get(u.bounds, [])
-                 if id(v) not in paired_v and resid_ok(v, u, pkg) and class_ok(v, u)[0]]
-        if len(cands) == 1:
-            bind(cands[0], u, MATCH_GEOM)
+        values = [v for v in by_rect.get(u.bounds, [])
+                  if resid_ok(v, u, pkg) and class_ok(v, u)[0]]
+        candidates[id(u)] = values
+        for v in values:
+            reverse_count[id(v)] = reverse_count.get(id(v), 0) + 1
+    for u in u_nodes:
+        values = candidates.get(id(u), [])
+        if len(values) == 1 and reverse_count[id(values[0])] == 1:
+            bind(values[0], u, MATCH_GEOM)
 
     # ---- R2 焦点锚定
     uf = [u for u in u_nodes if u.focused]

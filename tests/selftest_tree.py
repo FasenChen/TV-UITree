@@ -2667,6 +2667,338 @@ t.eq({p.name for p in existing_atomic_dir.iterdir()}, existing_atomic_names,
      "部分写入失败临时文件清理")
 
 
+
+
+def quality_cli(args: list[str]) -> tuple[int, str, str]:
+    """保留实际 CLI，异常也交给断言收集，防止 RED 中断整场。"""
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            rc = cli.main(args)
+        except Exception as error:
+            rc = -999
+            err.write(f"ESCAPED {type(error).__name__}: {error}")
+    return rc, out.getvalue(), err.getvalue()
+
+
+def quality_value_error(call, what: str) -> None:
+    """宽捕获后核对目标错误，RED 仍能正常汇总。"""
+    try:
+        call()
+    except Exception as error:
+        t.ok(isinstance(error, ValueError), what, repr(error))
+    else:
+        t.ok(False, what, "未报告 ValueError")
+
+t.group("24. 质量 T1：R1 逆向唯一及遍历不变性")
+for names in [("A", "B"), ("B", "A")]:
+    ur = models.U2Node(raw={}, cls="android.widget.FrameLayout", bounds=(0, 0, 400, 300))
+    vr = models.Node(cls="android.widget.FrameLayout", bounds=(0, 0, 400, 300))
+    vc = models.Node(cls="android.widget.Button", res_id="pkg:id/key",
+                     bounds=(10, 10, 40, 40), parent=vr)
+    vr.children = [vc]
+    ur.children = [models.U2Node(raw={}, cls=vc.cls, text=name, res_id=vc.res_id,
+                               bounds=vc.bounds, parent=ur) for name in names]
+    st = matching.align([ur], [vr], "pkg", (0, 0, 400, 300))
+    t.eq(sum(child.match_reason == models.MATCH_GEOM for child in ur.children), 0,
+         "两 a11y 争一 View，R1 不抢占")
+    t.eq(st.paired, 1, "仅保留无歧义的 R0 根")
+
+# Button a11y 兼容 custom/Button 两个 View；TextView a11y 仅兼容 custom View。
+# 逆向统计必须包括前者，不能仅统计各自唯一的候选。
+ur = models.U2Node(raw={}, cls="android.widget.FrameLayout", bounds=(0, 0, 400, 300))
+vr = models.Node(cls=ur.cls, bounds=ur.bounds)
+vr.children = [models.Node(cls="app.CustomButton", bounds=(10, 10, 40, 40), parent=vr),
+               models.Node(cls="android.widget.Button", bounds=(10, 10, 40, 40), parent=vr)]
+ur.children = [models.U2Node(raw={}, cls="android.widget.Button", bounds=(10, 10, 40, 40), parent=ur),
+               models.U2Node(raw={}, cls="android.widget.TextView", bounds=(10, 10, 40, 40), parent=ur)]
+matching.align([ur], [vr], "pkg", (0, 0, 400, 300))
+t.eq(sum(child.match_reason == models.MATCH_GEOM for child in ur.children), 0,
+     "候选图含歧义时不产生伪唯一几何绑定")
+
+
+
+
+def quality_projection_interfaces(full: dict) -> tuple[dict, dict, dict, dict]:
+    """同一 full JSON 经实际 CLI/MCP 投影，全部设备边界用替身隔离。"""
+    device = SimpleNamespace(serial="fixture")
+    with patch.object(application_observation, "collect_full_json", return_value=full), \
+         patch.object(mcp_interface, "collect_full_json", return_value=full), \
+         patch.object(observe_interface, "connect_for_cli", return_value=device), \
+         patch.object(visible_interface, "connect_for_cli", return_value=device), \
+         patch.object(mcp_interface, "_connect", return_value=(device, "fixture")), \
+         patch.object(timing, "LOG_STREAM", io.StringIO()):
+        rc, out, err = quality_cli(["observe", "--no-dumpsys", "--quiet", "--no-color"])
+        t.eq(rc, 0, "CLI observe 离线接口成功")
+        cli_observation = json.loads(out) if rc == 0 else {}
+        mcp_observation = mcp_interface.observe_tv(no_dumpsys=True)
+        t.eq(_timing_calls(), [("observe_tv", ["connect", "capture_tree", "summarize"], None)],
+             "observe 恰好一个 timing 块")
+        rc, out, err = quality_cli(["visible", "--quiet", "--no-color"])
+        t.eq(rc, 0, "CLI visible 离线接口成功")
+        cli_visible = json.loads(out) if rc == 0 else {}
+        mcp_visible = mcp_interface.get_visible()
+        t.eq(_timing_calls(), [("get_visible", ["connect", "capture_tree", "summarize"], None)],
+             "visible 恰好一个 timing 块")
+    t.eq(cli_observation, mcp_observation, "observe 接口投影一致")
+    t.eq(cli_visible, mcp_visible, "visible 接口投影一致")
+    return cli_observation, mcp_observation, cli_visible, mcp_visible
+
+t.group("25. 质量 T2：enabled False 不是未知")
+for enabled in [True, False, None]:
+    node = {"source": "a11y", "class": "android.widget.Button", "text": "Control",
+            "bounds_screen": [0, 0, 20, 20], "clickable": True, "enabled": enabled}
+    summary = domain_observation.node_summary(node, (0,))
+    if enabled is None:
+        t.not_has(summary, "enabled", "未知状态不补成 False")
+    else:
+        t.eq(summary.get("enabled"), enabled, "共享摘要保留布尔读数")
+    full = {"tree": [node], "screen": {"width": 100, "height": 100}}
+    item = application_observation.collect_visible(full_json=full)["page"]["nodes"][0]
+    if enabled is False:
+        t.eq(item.get("enabled"), False, "visible 显式保留禁用状态")
+    t.eq(summary.get("actions"), ["click"], "clickable 读数不被 enabled 改写")
+
+disabled = {"source": "a11y", "class": "android.widget.Button", "text": "Control",
+            "bounds_screen": [0, 0, 20, 20], "clickable": True, "enabled": False}
+full = {"tree": [disabled], "screen": {"width": 100, "height": 100}}
+for projected in quality_projection_interfaces(full):
+    items = projected.get("page", {}).get("nodes", [])
+    t.ok(bool(items), "各接口返回禁用控件")
+    if items:
+        t.eq(items[0].get("enabled"), False, "各接口明确返回禁用读数")
+
+
+
+
+t.group("26. 质量 T3：非原点父容器的局部范围")
+for bounds, expected in [([0, 0, 50, 50], False), ([100, 100, 250, 250], True),
+                         ([-1, 0, 10, 10], True), ([0, 0, 200, 200], False)]:
+    parent = screenshot.JsonNode({"source": "dumpsys", "class": "Parent",
+        "bounds_local": [100, 100, 300, 300], "children": [
+            {"source": "dumpsys", "class": "Child", "bounds_local": bounds}]})
+    t.eq(parent.children[0].chain_overflow() is not None, expected, "统一到父局部坐标系")
+    nested = screenshot.JsonNode({"source": "a11y", "class": "Parent",
+        "dumpsys": {"bounds_local": [100, 100, 300, 300]}, "children": [
+            {"source": "a11y", "class": "Child", "dumpsys": {"bounds_local": bounds}}]})
+    t.eq(nested.children[0].chain_overflow() is not None, expected, "嵌套 dumpsys 同判据")
+
+
+
+
+t.group("27. 质量 T4：损坏 XML 必须报告采集失败")
+quality_value_error(lambda: parsing.parse_u2_xml("<hierarchy><node"), "纯解析报告失败")
+t.eq(parsing.parse_u2_xml("<hierarchy/>"), [], "合法空 hierarchy 仍是空树")
+snap = {"xml": "<hierarchy><node", "block": None, "pkg": None,
+        "screen": {"width": 100, "height": 100}, "u2_meta": {}, "dev": {}, "win": {},
+        "pick_note": None, "drift": False, "drift_detail": None}
+with patch("tvuitree.infrastructure.snapshot.snapshot", return_value=snap):
+    quality_value_error(lambda: application_observation.collect_full_json(
+        adb=object(), serial="fixture", use_dumpsys=False), "采集不返回伪正常空树")
+    with patch.object(observe_interface, "connect_for_cli", return_value=adb.Adb("adb", "fixture")):
+        rc, out, err = quality_cli(["observe", "--no-dumpsys", "--quiet", "--no-color"])
+    t.eq(rc, 3, "实时解析失败进入采集错误通道")
+    t.eq(out, "", "失败不输出成功 JSON")
+    t.ok("解析失败" in err and "ESCAPED" not in err, "中文受控诊断")
+
+with patch("tvuitree.infrastructure.snapshot.snapshot", return_value=snap), \
+     patch.object(mcp_interface, "_connect", return_value=(SimpleNamespace(serial="fixture"), "fixture")), \
+     patch.object(timing, "LOG_STREAM", io.StringIO()):
+    result = mcp_interface.observe_tv(no_dumpsys=True)
+    calls = _timing_calls()
+t.eq(result.get("focus", {}).get("status"), "error", "MCP 不伪报正常观察")
+t.eq(result.get("full_tree_available"), False, "失败树不可用")
+t.eq(calls, [("observe_tv", ["connect", "capture_tree"], "capture_tree")],
+     "MCP 一次计时并定位解析失败阶段")
+
+
+
+
+t.group("28. 质量 T5：嵌套 JSON 形状与兼容边界")
+quality_path = Path(TD) / "quality_full.json"
+bad_json = [{"tree": [None]}, {"tree": [{}], "screen": ["bad"]},
+            {"tree": [{"children": {}}]}, {"tree": [{"text": 3}]},
+            {"tree": [{"bounds_screen": [0, 0, True, 10]}]},
+            {"tree": [{"bounds_screen": [0, 0, float("nan"), 10]}]},
+            {"tree": [], "screen": {"width": "100"}}, {"tree": [], "focus": "bad"}]
+for obj in bad_json:
+    quality_path.write_text(json.dumps(obj), encoding="utf-8")
+    quality_value_error(lambda: observe_interface.load_full_json(str(quality_path)),
+                        "损坏结构在文件入口拒绝")
+    for args in [["observe"], ["visible"], ["tree", "--mode", "slim"]]:
+        rc, out, err = quality_cli([*args, "--from-json", str(quality_path), "--quiet", "--no-color"])
+        t.eq(rc, 2, "损坏业务结构返回文件错误 2")
+        t.ok("ESCAPED" not in err and "Traceback" not in err, "无异常外漏")
+        t.eq(out, "", "失败不输出成功投影")
+for obj in [{"tree": [], "note": "保留未知字段"},
+            {"tree": [{"children": None, "bounds_screen": None}], "screen": {}},
+            {"tree": [], "screen": {"width": 0, "height": 0}}]:
+    quality_path.write_text(json.dumps(obj), encoding="utf-8")
+    t.eq(observe_interface.load_full_json(str(quality_path)), obj, "稀疏合法结构不被补写或删字段")
+
+
+validator = getattr(tree_output, "validate_full_json", None)
+t.ok(callable(validator), "共享纯校验入口存在")
+if callable(validator):
+    for obj in [{"tree": [], "note": "unknown"}, {"tree": [{"children": None}]}]:
+        t.ok(validator(obj) is obj, "合法对象未被转换或清洗")
+
+
+
+
+t.group("29. 质量 T6：连接仅接受 device 状态")
+for state in ["device", "offline", "unauthorized"]:
+    def quality_devices(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0,
+            f"List of devices attached\nfixture:5555\t{state}\n".encode(), b"")
+    for serial in ["fixture:5555", None]:
+        device = adb.Adb("adb", serial, auto_connect=False)
+        device._connected = True
+        with patch.object(adb.subprocess, "run", side_effect=quality_devices) as process:
+            t.eq(device.connect(quiet=True), state == "device", "初始连接核对可用状态")
+        t.eq(process.call_count, 1, "no_connect 仅一次状态查询")
+        t.eq(device._connected, state == "device", "不保留陈旧状态")
+        if state != "device":
+            t.eq(device.serial, serial, "失败不抢占目标")
+
+for listing, serial, expected, resulting in [
+    ("fixture:5555\toffline\nother:5555\tdevice\n", "fixture:5555", False, "fixture:5555"),
+    ("fixture:5555\toffline\nother:5555\tdevice\n", None, True, "other:5555"),
+    ("fixture:5555\tdevice\nother:5555\tdevice\n", None, False, None),
+]:
+    device = adb.Adb("adb", serial, auto_connect=False)
+    completed = subprocess.CompletedProcess([], 0,
+        ("List of devices attached\n" + listing).encode(), b"")
+    with patch.object(adb.subprocess, "run", return_value=completed) as process:
+        t.eq(device.connect(quiet=True), expected, "混合状态只选可用目标，多设备拒绝猜测")
+    t.eq(device.serial, resulting, "目标选择或保留符合契约")
+    t.eq(process.call_count, 1, "不增加状态查询")
+
+
+
+
+t.group("30. 质量 T7：运行失败有受控 CLI 出口")
+from tvuitree.interfaces import input as input_interface, shot as shot_interface
+device = adb.Adb("adb", "fixture", auto_connect=False)
+with patch.object(input_interface, "connect_for_cli", return_value=device), \
+     patch.object(device, "shell_raw", side_effect=adb.AdbError("injected timeout")):
+    rc, out, err = quality_cli(["input", "DOWN", "--quiet", "--no-color"])
+t.eq(rc, 1, "按键执行失败返回 1")
+t.ok("发送失败" in err and "ESCAPED" not in err, "按键失败中文诊断")
+path = Path(TD) / "quality_shot.json"
+path.write_text(json.dumps({"tree": []}), encoding="utf-8")
+png_path = Path(TD) / "quality_bad.png"
+png_path.write_bytes(b"not a png")
+rc, out, err = quality_cli(["shot", "--json", str(path), "--image", str(png_path),
+                            "--out", str(Path(TD) / "quality-shot.png"), "--quiet", "--no-color"])
+t.eq(rc, 1, "无效图片返回 shot 自身失败 1")
+t.ok("画框失败" in err and "ESCAPED" not in err, "无图片异常外漏")
+with patch("tvuitree.application.screenshot.render", side_effect=OSError("injected output failure")):
+    rc, out, err = quality_cli(["shot", "--json", str(path), "--image", str(png_path), "--quiet", "--no-color"])
+t.eq(rc, 1, "输出失败进入同一 shot 出口")
+t.ok("[out]" not in out and "ESCAPED" not in err, "失败不打印成功摘要")
+with patch.object(shot_interface, "connect_for_cli", return_value=None):
+    rc, out, err = quality_cli(["shot", "--json", str(path), "--quiet", "--no-color"])
+t.eq(rc, 2, "shot 连接失败仍返回 2")
+with patch.object(input_interface, "connect_for_cli", return_value=None):
+    rc, out, err = quality_cli(["input", "DOWN", "--quiet", "--no-color"])
+t.eq(rc, 2, "input 连接失败仍返回 2")
+
+import datetime as quality_datetime
+from PIL import Image as QualityImage
+path.write_text(json.dumps({"tree": [],
+    "captured_at": quality_datetime.datetime.now(quality_datetime.timezone.utc).isoformat()}),
+    encoding="utf-8")
+QualityImage.new("RGB", (2, 2)).save(png_path)
+output_path = Path(TD) / "quality-timezone-shot.png"
+rc, out, err = quality_cli(["shot", "--json", str(path), "--image", str(png_path),
+                            "--out", str(output_path), "--quiet", "--no-color"])
+t.eq(rc, 0, "合法带时区时间可正常离线画框")
+t.ok(output_path.exists(), "成功确实产生 PNG")
+t.ok("ESCAPED" not in err, "合法时间无 TypeError 外漏")
+
+
+
+
+t.group("31. 质量 T8：非法键码不触发任何设备操作")
+for name in ["DOWN; :", "3 4", "HOME|:", "KEYCODE_", "$(X)", "", "２０"]:
+    quality_value_error(lambda: remote_input.normalize_keycode(name), "拒绝非单个键码语法")
+device = adb.Adb("adb", "fixture", auto_connect=False)
+with patch.object(input_interface, "connect_for_cli", return_value=device) as connect, \
+     patch.object(device, "shell_raw", return_value=(0, "", "")) as shell:
+    rc, out, err = quality_cli(["input", "DOWN,HOME; :", "--quiet", "--no-color"])
+t.eq(rc, 2, "非法序列返回用法错误 2")
+t.eq(connect.call_count, 0, "整段预检在连接之前")
+t.eq(shell.call_count, 0, "后段非法不能先发前段")
+with patch.object(device, "shell_raw", return_value=(0, "", "")) as shell:
+    quality_value_error(lambda: list(remote_input.send_sequence(
+        device, ["DOWN", "HOME; :"], delay=0)), "Python API 整段预检")
+t.eq(shell.call_count, 0, "API 也不产生部分副作用")
+for value, expected in [(" down ", "KEYCODE_DPAD_DOWN"), ("dpad_down", "KEYCODE_DPAD_DOWN"),
+                        ("KEYCODE_HOME", "KEYCODE_HOME"), ("20", "20"), ("KEYCODE_3", "KEYCODE_3")]:
+    t.eq(remote_input.normalize_keycode(value), expected, "正常语法与别名保留")
+
+
+
+
+t.group("32. 质量 T9：无标签控件保留真实操作与状态")
+for checked in [False, True]:
+    node = {"source": "a11y", "class": "android.widget.Switch", "resource_id": "fixture:id/toggle",
+            "bounds_screen": [0, 0, 20, 20], "checkable": True, "checked": checked,
+            "enabled": False, "visible_to_user": True}
+    result = domain_visible.select_visible({"tree": [node], "screen": {"width": 100, "height": 100}})
+    items = result["page"]["nodes"]
+    t.eq(len(items), 1, "有操作和坐标证据的 Switch 不遗漏")
+    if items:
+        t.eq(items[0].get("checked"), checked, "保留开关 False/True 读数")
+        t.eq(items[0].get("enabled"), False, "不丢失 T2 的禁用状态")
+        t.eq(items[0].get("resource_id"), "fixture:id/toggle", "保留已有标识")
+        t.not_has(items[0], "labels", "不编造显示文字")
+for flags in [{}, {"focusable": True}, {"scrollable": True}]:
+    node = {"source": "a11y", "class": "android.widget.FrameLayout",
+            "bounds_screen": [0, 0, 20, 20], **flags}
+    t.eq(domain_visible.select_visible({"tree": [node], "screen": {"width": 100, "height": 100}})
+         ["page"]["nodes"], [], "空容器不因弱证据膨胀输出")
+
+toggle = {"source": "a11y", "class": "android.widget.Switch",
+          "resource_id": "fixture:id/toggle", "bounds_screen": [0, 0, 20, 20],
+          "checkable": True, "checked": False, "enabled": False, "visible_to_user": True}
+full = {"tree": [toggle], "screen": {"width": 100, "height": 100}}
+cli_o, mcp_o, cli_v, mcp_v = quality_projection_interfaces(full)
+for projected in [cli_v, mcp_v]:
+    items = projected.get("page", {}).get("nodes", [])
+    t.eq(len(items), 1, "各 visible 接口保留无标签开关")
+    if items:
+        t.eq(items[0].get("checked"), False, "各接口保留未选读数")
+        t.eq(items[0].get("enabled"), False, "各接口保留禁用读数")
+for overrides in [{"visible_to_user": False}, {"bounds_screen": [200, 200, 220, 220]}]:
+    hidden = {**toggle, **overrides}
+    projected = domain_visible.select_visible({"tree": [hidden], "screen": full["screen"]})
+    t.eq(projected["page"]["nodes"], [], "操作性不覆盖隐藏或屏外证据")
+
+
+t.group("33. 终审补修：缺少焦点坐标保持未知")
+sparse_png = Path(TD) / "sparse-focus-source.png"
+QualityImage.new("RGB", (2, 2)).save(sparse_png)
+for index, coordinates in enumerate([{}, {"bounds_screen": None}]):
+    full = {"tree": [{"source": "a11y", "class": "android.widget.Button",
+                       "focused": True, **coordinates}]}
+    path = Path(TD) / f"sparse-focus-{index}.json"
+    path.write_text(json.dumps(full), encoding="utf-8")
+    try:
+        lines = screenshot.compare_focus(full)
+    except Exception as error:
+        t.ok(False, "缺坐标的焦点比较不外漏异常", repr(error))
+    else:
+        t.ok(any("坐标未知" in line for line in lines), "两来源无坐标明确报告未知")
+    output_path = Path(TD) / f"sparse-focus-{index}.png"
+    rc, out, err = quality_cli(["shot", "--json", str(path), "--image", str(sparse_png),
+                                "--out", str(output_path), "--quiet", "--no-color"])
+    t.eq(rc, 0, "合法稀疏焦点 JSON 可完成离线截图")
+    t.ok("坐标未知" in out and "ESCAPED" not in err, "CLI 保留焦点读数并明确坐标未知")
+    t.ok(output_path.is_file(), "实际 Pillow 处理生成 PNG")
+
+
 # ================================================================== 收尾
 
 shutil.rmtree(TD, ignore_errors=True)

@@ -1,7 +1,8 @@
-"""Serialize aligned TV trees into the full JSON representation."""
+"""Full JSON serialization and consumer structure validation."""
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 from .models import AlignStats, Node, U2Node
@@ -173,7 +174,7 @@ def build_full_json(u2_roots: list, view_roots: list, u2_meta: dict, dev: dict,
         },
         "align_rules": {
             "R0": "两侧各唯一根 → 同一窗口根",
-            "R1": "pred_visible_rect(view)==a11y bounds 且 res-id/class 谓词成立且候选唯一",
+            "R1": "pred_visible_rect(view)==a11y bounds 且 res-id/class 谓词成立且双向候选唯一",
             "R2": "两侧各自唯一 focused 且 class 谓词成立",
             "R3": "父已配对时 a11y 子序列到 view 子序列的保序全注入解唯一才采用",
             "predicate_resid": "view 侧 app:id/X 归一化为 <段包名>:id/X 后字符串相等（同为 None 也算）",
@@ -217,3 +218,62 @@ def build_full_json(u2_roots: list, view_roots: list, u2_meta: dict, dev: dict,
         } for u in find_u2_focus(u2_roots)],
     }
     return out
+
+
+def validate_full_json(obj: object) -> dict:
+    """校验消费者实际依赖的形状；保留缺失读数和未知字段。"""
+    if not isinstance(obj, dict) or not isinstance(obj.get("tree"), list):
+        raise ValueError("full JSON 缺少 tree 列表")
+    def fail(path: str) -> None:
+        raise ValueError(f"full JSON 字段结构无效：{path}")
+    def optional_object(value: object, path: str) -> None:
+        if value is not None and not isinstance(value, dict):
+            fail(path)
+    def bounds(value: object, path: str) -> None:
+        if value is None:
+            return
+        if not isinstance(value, (list, tuple)) or len(value) != 4:
+            fail(path)
+        if any(isinstance(x, bool) or not isinstance(x, (int, float))
+               or (isinstance(x, float) and not math.isfinite(x)) for x in value):
+            fail(path)
+    def forest(nodes: object, path: str) -> None:
+        if nodes is None:
+            return
+        if not isinstance(nodes, list):
+            fail(path)
+        for index, node in enumerate(nodes):
+            here = f"{path}[{index}]"
+            if not isinstance(node, dict):
+                fail(here)
+            for key in ("class", "resource_id", "text", "content_desc", "hint", "package", "source"):
+                value = node.get(key)
+                if value is not None and not isinstance(value, str):
+                    fail(f"{here}.{key}")
+            for key in ("enabled", "focused", "selected", "checked", "visible", "visible_to_user",
+                        "gone", "clickable", "focusable", "checkable", "long_clickable", "scrollable"):
+                value = node.get(key)
+                if value is not None and not isinstance(value, bool):
+                    fail(f"{here}.{key}")
+            for key in ("bounds_screen", "bounds_local", "bounds_abs_unclipped", "pred_visible_rect"):
+                bounds(node.get(key), f"{here}.{key}")
+            nested = node.get("dumpsys")
+            optional_object(nested, f"{here}.dumpsys")
+            if nested:
+                for key in ("bounds_local", "bounds_abs_unclipped", "pred_visible_rect"):
+                    bounds(nested.get(key), f"{here}.dumpsys.{key}")
+            forest(node.get("children"), f"{here}.children")
+    forest(obj["tree"], "tree")
+    forest(obj.get("dumpsys_only"), "dumpsys_only")
+    forest(obj.get("focus"), "focus")
+    for key in ("screen", "align_stats", "source_consistency", "device", "window"):
+        optional_object(obj.get(key), key)
+    screen = obj.get("screen") or {}
+    for key in ("width", "height"):
+        value = screen.get(key)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+            fail(f"screen.{key}")
+    stamp = obj.get("captured_at")
+    if stamp is not None and not isinstance(stamp, str):
+        fail("captured_at")
+    return obj

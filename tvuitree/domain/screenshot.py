@@ -62,14 +62,15 @@ class JsonNode:
         cur = self
         while cur is not None and cur.parent is not None:
             b, pb = cur.rect_local(), cur.parent.rect_local()
-            if b and pb and (b[0] < pb[0] or b[1] < pb[1] or b[2] > pb[2] or b[3] > pb[3]):
+            parent_rect = (0, 0, pb[2] - pb[0], pb[3] - pb[1]) if pb else None
+            if b and parent_rect and (b[0] < 0 or b[1] < 0
+                                     or b[2] > parent_rect[2] or b[3] > parent_rect[3]):
                 name = (cur["class"] or "?").rsplit(".", 1)[-1]
                 rid = cur["resource_id"]
                 return (f"祖先 {name}{('#' + rid.split('/')[-1]) if rid else ''} 的矩形 "
-                        f"{b[0]},{b[1]}-{b[2]},{b[3]} 超出其父容器 "
-                        f"{pb[0]},{pb[1]}-{pb[2]},{pb[3]}（该容器有溢出内容）。滚动偏移就"
-                        f"发生在这样的容器里，而 dump 不含 scrollX/scrollY —— 这条链上的"
-                        f"累加坐标无法验证，画出来的框可能落在屏幕内但错误的控件上")
+                        f"{b[0]},{b[1]}-{b[2]},{b[3]} 超出其父容器局部范围 "
+                        f"0,0-{parent_rect[2]},{parent_rect[3]}（该容器有溢出内容）。"
+                        "dump 不含 scrollX/scrollY，这条链上的累加坐标无法验证")
             cur = cur.parent
         return None
 
@@ -195,9 +196,12 @@ def compare_focus(obj: dict) -> list:
         elif a:
             lines.append(f"  焦点节点 {n.label()}：只有 a11y 读数 "
                          f"[{a[0]},{a[1]}-{a[2]},{a[3]}]，没有配对的 dumpsys 节点可对照")
-        else:
+        elif d:
             lines.append(f"  焦点节点 {n.label()}：只有 dumpsys 派生坐标 "
                          f"[{d[0]},{d[1]}-{d[2]},{d[3]}]，没有 a11y 读数可对照")
+        else:
+            lines.append(f"  焦点节点 {n.label()}：a11y 读数与 dumpsys 派生坐标均缺失，"
+                         "坐标未知，无法对照")
     return lines
 
 

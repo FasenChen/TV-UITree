@@ -25,7 +25,8 @@ def run_shot(args: argparse.Namespace) -> int:
     captured_at = obj.get("captured_at")
     if captured_at:
         try:
-            age = (dt.datetime.now() - dt.datetime.fromisoformat(captured_at)).total_seconds()
+            when = dt.datetime.fromisoformat(captured_at)
+            age = (dt.datetime.now(when.tzinfo) - when).total_seconds()
             if age > 60:
                 print(c(f"[警告] 这份 JSON 是 {captured_at} 抓的（{int(age)} 秒前）。"
                         "截图是现在拍的，画面可能已经变了 —— 框对不上不一定是坐标错。",
@@ -50,7 +51,11 @@ def run_shot(args: argparse.Namespace) -> int:
         except (AdbError, ValueError) as error:
             print(c(str(error), C.RED), file=sys.stderr)
             return 1
-    result = render(obj, png, args.out, draw=args.draw, source=args.source, width=args.width)
+    try:
+        result = render(obj, png, args.out, draw=args.draw, source=args.source, width=args.width)
+    except (OSError, ValueError) as error:
+        print(c(f"画框失败：{type(error).__name__}: {error}", C.RED), file=sys.stderr)
+        return 1
     boxes, warnings = result["boxes"], result["warnings"]
     drawn, skipped, notes = result["drawn"], result["skipped"], result["notes"]
     if not args.quiet:
