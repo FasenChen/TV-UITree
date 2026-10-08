@@ -8,9 +8,9 @@
 
 ## 下载版本
 
-固定版本见 [GitHub Releases](https://github.com/FasenChen/TV-UITree/releases)。首次版本为 `v0.1.0`，建议下载附件 `tv-uitree-v0.1.0.zip`，其中设备配置和相关文档示例已替换为占位值。解压后先修改 `config.json` 的 `TV_IP_Address`；`adb` 默认设为 `adb`，需要将 ADB 加入 PATH 或填写本机完整路径，再按下方步骤安装依赖。
+固定版本见 [GitHub Releases](https://github.com/FasenChen/TV-UITree/releases)。当前版本为 `v0.2.0`，建议下载附件 `tv-uitree-v0.2.0.zip`，其中设备配置和相关文档示例已替换为占位值。解压后先修改 `config.json` 的 `TV_IP_Address`；`adb` 默认设为 `adb`，需要将 ADB 加入 PATH 或填写本机完整路径，再按下方步骤安装依赖。
 
-这是源码运行包，需要 Python 和 ADB。版本范围、检查结果和后续发布步骤见 [v0.1.0 发布记录](docs/reports/2026-10-05-v0.1.0-release.md)。
+这是源码运行包，需要 Python 和 ADB。版本范围和检查结果见 [v0.2.0 发布记录](docs/reports/2026-10-08-v0.2.0-release.md)，后续发布步骤见 [首次发布记录](docs/reports/2026-10-05-v0.1.0-release.md)。
 
 ## 快速开始
 
@@ -302,6 +302,8 @@ python scripts/bench_screencap.py 192.168.1.148 --count 50
 `--from-json` 在文件入口校验节点、子树、矩形和屏幕等实际消费的结构；保留合法稀疏数据及未知字段。损坏的 a11y XML 会报告采集失败，合法空 hierarchy 仍可以生成空树。`input` 在连接前验证整个键码序列，允许短名、`KEYCODE_*` 标识符和 ASCII 数字；含空格或 shell 元字符的非法键码返回 `2`，不会先发送合法前半段。实际 ADB 发送失败和 `shot` 图片解码、绘制或写入失败会输出中文说明并返回 `1`；`shot` 的 JSON/图片读取失败也保留返回 `1`。
 
 `scripts/bench_screencap.py` 压测截图耗时：参数是一个或多个设备 IP（`ip` 或 `ip:port`，未带端口时用 `--port`，默认 `5555`）和 `-n/--count` 次数。每次计时覆盖一次完整截图（发起到 PNG 全部取回并校验），不含连接；逐次打印耗时和 PNG 大小，最后给出 min / mean / p50 / p90 / p99 / max。单次失败会记下原因并继续，Ctrl+C 会打印已完成部分的统计。退出码：`0` 全部成功，`1` 有截图失败，`2` 参数或连接错误，`130` 被中断。每次运行都会写一份 UTF-8 txt 报告（汇总、逐次记录、连接失败），默认在 `_temp/bench_screencap/bench_screencap_<时间>.txt`，可用 `--report <路径>` 指定；中断时也会写出已完成部分。报告写入失败时退出码为 `2`。
+
+`python scripts/bench_mcp.py --count 10 --warmup 1` 比较同场景的五个 MCP 读取工具、tree/observe 的 a11y 模式与直接截图；设备默认读取配置。报告同时包含客户端总耗时、现有服务端总耗时、各阶段和同轮截图差值，写入 `_temp/bench_mcp/<时间>/` 的 UTF-8 TXT／JSON／JSONL 与原始 stderr。服务启动单列，预热与失败不进入成功统计，前后场景变化会标记比较条件不一致；不发送按键或修改配置。参数、边界及结果解读见 [MCP 与直接截图耗时压测](docs/bench-mcp.md)。
 
 `slim` 默认启用八个剪枝开关：
 
