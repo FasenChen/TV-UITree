@@ -906,7 +906,64 @@ t.eq(capture.hierarchy_drift(d1, d2), (False, None),
 drift, why = capture.hierarchy_drift(d1, _dumpsys(alpha_bounds="10,0-470,200"))
 t.eq(drift, True, "布局矩形变了 → 判定漂移")
 t.ok(why and "行不同" in why, "漂移说明要指出第一处不同在哪一行")
-t.eq(capture.hierarchy_drift(d1, d1 + "\n  多出来的一行{x}")[0], True, "行数不同 → 判漂移")
+# 只比较实际 View 层次，队列日志和其他花括号内容不参与。
+base = _dumpsys()
+queue = (
+    "    Looper:\n"
+    "      Message 1: { when=+25ms what=40 "
+    "target=android.view.ViewRootImpl$ViewRootHandler }\n"
+)
+t.eq(capture.hierarchy_drift(base + queue, base), (False, None),
+     "消息队列行消失不算 View 漂移")
+t.eq(capture.hierarchy_drift(base, base + queue), (False, None),
+     "消息队列行新增不算 View 漂移")
+t.eq(capture.hierarchy_drift(base + queue, base + queue.replace("+25ms", "+99ms")),
+     (False, None), "消息队列内容变化不算 View 漂移")
+t.eq(capture.hierarchy_drift(base, base + "\n  多出来的一行{x}"),
+     (False, None), "非 View 花括号日志不算漂移")
+
+outside_view = (
+    "    Looper:\n"
+    "      android.widget.TextView{aabbcc V.E...... ......ID 0,0-10,10}\n"
+)
+t.eq(capture.hierarchy_drift(base, base + outside_view), (False, None),
+     "层次段外形似 View 的日志也不参与比较")
+
+extra = (
+    "          android.widget.TextView{aabbcc V.E...... ......ID "
+    "20,20-100,100 app:id/extra}\n"
+)
+added = base.replace("          com.demo.Gamma", extra + "          com.demo.Gamma", 1)
+t.eq(capture.hierarchy_drift(base, added)[0], True, "真实 View 新增仍算漂移")
+t.eq(capture.hierarchy_drift(added, base)[0], True, "真实 View 删除仍算漂移")
+t.eq(capture.hierarchy_drift(base, base.replace(".F....ID", "......ID", 1))[0],
+     True, "真实焦点 flags 变化仍算漂移")
+
+t.eq(capture.hierarchy_drift(base, base.replace("[MainActivity]", "[OtherTitle]", 1))[0],
+     True, "无花括号的 DecorView 根行变化仍算漂移")
+post_name = base.replace(
+    "DecorView@6e60694[MainActivity]",
+    "DecorView{6e60694 V.E...... ......ID 0,0-1920,1080}[MainActivity]", 1)
+t.eq(capture.hierarchy_drift(post_name, post_name)[0], False,
+     "Android 16 根节点后置名称可正常比较")
+t.eq(capture.hierarchy_drift(post_name, post_name.replace("[MainActivity]", "[OtherTitle]", 1))[0],
+     True, "Android 16 根节点名称变化仍算漂移")
+
+ordered = base.splitlines()
+alpha_index = next(i for i, line in enumerate(ordered) if "{f4a126d " in line)
+beta_index = next(i for i, line in enumerate(ordered) if "{de6fd27 " in line)
+ordered[alpha_index], ordered[beta_index] = ordered[beta_index], ordered[alpha_index]
+t.eq(capture.hierarchy_drift(base, "\n".join(ordered))[0], True,
+     "真实兄弟顺序变化仍算漂移")
+t.eq(capture.hierarchy_drift(base, base.replace("          com.demo.Gamma", "        com.demo.Gamma", 1))[0],
+     True, "真实节点缩进层级变化仍算漂移")
+
+second = base.replace("com.demo/.MainActivity", "com.demo/.SecondActivity", 1).replace("pid=100", "pid=101", 1)
+t.eq(capture.hierarchy_drift(base + second, base + second + queue), (False, None),
+     "多 Activity 段外的消息队列变化不算漂移")
+t.eq(capture.hierarchy_drift(base + second, base + second.replace("480,0-960,200", "480,0-961,200", 1))[0],
+     True, "第二个 Activity 的真实 View 变化仍算漂移")
+t.eq(capture.hierarchy_drift(base, "")[0], True, "真实 View 层次消失仍算漂移")
 t.eq(capture.hierarchy_drift("", "")[0], False, "两边都没有层次行 → 不判漂移")
 
 

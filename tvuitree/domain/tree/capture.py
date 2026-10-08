@@ -3,20 +3,18 @@
 from __future__ import annotations
 
 from .models import AlignStats
-from .parsing import iter_nodes, parse_u2_xml
+from .parsing import iter_nodes, parse_dumpsys_top, parse_u2_xml
 from .matching import align, u2_all
 
 # ------------------------------------------------------------------ 采集编排
 
 
-def _hierarchy_lines(raw: str) -> list:
-    """从 dumpsys 文本里取出**我们真正消费的部分**：View 层次行。
-
-    为什么单独抽出来比：整份 dumpsys 里含 `mLastFrameTime=… (N ms ago)` 这类
-    单调时钟字段，每次抓取必然变化。拿整份文本做前后一致性比较会**恒定误报**
-    「画面在动」—— 误报比漏报更伤信任。
-    """
-    return [ln.rstrip() for ln in raw.splitlines() if "{" in ln and "}" in ln]
+def _hierarchy_lines(raw: str) -> list[str]:
+    """只比较现有解析器实际消费的 View 行，保留原始顺序和缩进。"""
+    lines = raw.splitlines()
+    return [lines[node.lineno - 1].rstrip()
+            for block in parse_dumpsys_top(raw)
+            for node in block.all_nodes]
 
 
 def hierarchy_drift(raw_a: str, raw_b: str) -> tuple:
