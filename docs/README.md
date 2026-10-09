@@ -2,6 +2,10 @@
 
 项目使用说明见 [根目录 README](../README.md)，编码与交付约定见 [AGENTS.md](../AGENTS.md)。长期维护的说明、计划、审查与交付报告统一存放在 `docs/`。
 
+## 现场 HTML 报告
+
+- [一键生成电视现场 HTML 报告](../README.md#一键生成电视现场-html-报告)：`scripts/collect_tv_scene.py` 动态调用五个读取工具、跳过默认设备写入，输出截图、焦点、原始返回及调用总耗时、服务端总计和阶段耗时；生成文件留在 `_temp/`，不随仓库提交。
+
 ## MCP 工具命名
 
 - [实施计划](superpowers/plans/2026-10-09-mcp-tool-names.md)：两处 MCP 工具改名及消费者同步。
@@ -35,7 +39,7 @@
 
 | 文档 | 用途及状态 |
 |---|---|
-| [Ponytail 全项目复杂度审查（2026-10-05）](reviews/2026-10-05-ponytail-audit.md) | 针对 a220fc2 的复杂度审查，列出 7 项删除或简化建议；1087 条基线自检通过；建议尚未实施 |
+| [Ponytail 全项目复杂度审查（2026-10-05）](reviews/2026-10-05-ponytail-audit.md) | 针对 a220fc2 的历史复杂度审查，列出 7 项删除或简化建议；当时 1087 条基线自检通过；后续实施与裁定见下方清理交付记录 |
 | [Ponytail 审查复核（2026-10-05）](reviews/2026-10-05-ponytail-audit-review.md) | 复核确认 7 项均有依据，修订截图替换方式，明确遍历顺序、测试迁移及接口边界；代码未修改 |
 | [Ponytail 清理实施计划](superpowers/plans/2026-10-05-ponytail-cleanup.md) | 隔离 worktree 的 4 项实施已完成，1140 条自检通过；独立终审完成，代码已分阶段提交并快进整合至 main |
 | [Ponytail 清理交付与验证](reports/2026-10-05-ponytail-cleanup-delivery.md) | 7 项建议的实施、分阶段验证和执行裁定；无生产代码终审问题，索引缺陷已修复 |
@@ -53,9 +57,9 @@
 | [Codex 复审补修计划](superpowers/plans/2026-10-03-remediation-follow-up.md) | 针对当前代码的 R1–R5 修复与永久回归计划，执行方式已选为 Codex 本会话顺序实施 |
 | [Codex 复审补修交付报告](reports/2026-10-03-remediation-follow-up-delivery.md) | R1–R5 的本轮补修、864 条自检及 19 个金样精确对比；真实 MCP 错误路径通过，TV 不可达 |
 | [Codex 补修独立终审](reviews/2026-10-03-remediation-follow-up-final-review.md) | 独立终审发现一项测试编码问题，已按 RED→GREEN 闭环；保留明确的未验证边界 |
-| [当前代码质量与架构评审](reviews/2026-10-03-current-code-quality-and-architecture.md) | 针对 c5eb108 的整体只读审查；架构适合现有规模，列出观测语义和边界处理问题，尚未实施修复 |
+| [当前代码质量与架构评审](reviews/2026-10-03-current-code-quality-and-architecture.md) | 针对 c5eb108 的历史只读审查，列出观测语义和边界处理问题；后续补修已整合，范围见下方补修交付 |
 | [观测质量补修计划（Codex 执行）](superpowers/plans/2026-10-03-code-quality-remediation-deepseek.md) | Q1–Q9 的三批、十任务执行依据；原 DeepSeek 交接版后改由 Codex 在隔离 worktree 实施，附执行记录 |
-| [观测质量补修交付](reports/2026-10-03-code-quality-remediation-delivery.md) | Q1–Q9 与终审补修、1087 条自检、金样差异、MCP 协议与真机验证边界；已分批提交至隔离分支；尚未合并 |
+| [观测质量补修交付](reports/2026-10-03-code-quality-remediation-delivery.md) | Q1–Q9 与终审补修、1087 条自检、金样差异、MCP 协议与真机验证边界；已通过 a220fc2 整合至 main，保留交付时的原始记录 |
 | [观测质量补修独立终审](reviews/2026-10-04-code-quality-remediation-final-review.md) | 一次独立终审发现稀疏焦点坐标缺陷，已按 RED→GREEN 关闭；原结论及范围裁定保留 |
 
 ## 注释、命名与结构清理

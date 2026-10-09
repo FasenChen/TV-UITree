@@ -62,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     shot.add_argument("--draw", choices=["focus", "actionable", "all"], default="focus")
     shot.add_argument("--width", type=int, default=1, metavar="N")
 
-    commands.add_parser("mcp", help="启动只读 stdio MCP 服务")
+    commands.add_parser("mcp", help="启动 stdio MCP 服务（界面读取与默认设备配置）")
     return parser
 
 

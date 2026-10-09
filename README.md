@@ -8,7 +8,9 @@
 
 ## 下载版本
 
-固定版本见 [GitHub Releases](https://github.com/FasenChen/TV-UITree/releases)。当前版本为 `v0.2.0`，建议下载附件 `tv-uitree-v0.2.0.zip`，其中设备配置和相关文档示例已替换为占位值。解压后先修改 `config.json` 的 `TV_IP_Address`；`adb` 默认设为 `adb`，需要将 ADB 加入 PATH 或填写本机完整路径，再按下方步骤安装依赖。
+固定版本见 [GitHub Releases](https://github.com/FasenChen/TV-UITree/releases)。当前发布版本为 `v0.2.0`，可下载附件 `tv-uitree-v0.2.0.zip`，其中设备配置和相关文档示例已替换为占位值。解压后先修改 `config.json` 的 `TV_IP_Address`；`adb` 默认设为 `adb`，需要将 ADB 加入 PATH 或填写本机完整路径，再按下方步骤安装依赖。
+
+本文按最新 `main` 分支说明。USB ADB 序列号支持、`get_screen_summary` / `get_visible_controls` 工具新名称和现场 HTML 报告脚本在 `v0.2.0` 发布后加入，尚未纳入该发布包；使用这些功能时请下载或克隆 `main` 分支源码。
 
 这是源码运行包，需要 Python 和 ADB。版本范围和检查结果见 [v0.2.0 发布记录](https://github.com/FasenChen/TV-UITree/blob/v0.2.0/docs/reports/2026-10-08-v0.2.0-release.md)，后续发布步骤见 [首次发布记录](https://github.com/FasenChen/TV-UITree/blob/main/docs/reports/2026-10-05-v0.1.0-release.md)。
 
@@ -27,13 +29,13 @@ python main.py observe --out observe.json
 
 ```json
 {
-  "TV_IP_Address": "192.168.1.147",
+  "TV_IP_Address": "192.0.2.10",
   "port": 5555,
-  "adb": "D:\\\\platform-tools\\\\adb.exe"
+  "adb": "adb"
 }
 ```
 
-连接时直接使用配置文件；临时切换电视可传入 `--TV_IP_Address 192.168.1.148 --port 5555`。显式参数优先于配置文件；只传其中一个时，另一个仍从配置文件读取。`TV_IP_Address` 只填 IP 或主机名，不包含端口。`adb` 设置本机 ADB 可执行文件路径；命令行或 MCP 显式传入 `adb` 时优先。配置文件缺失或值无效时会明确报错。
+上方 IP 为示例，应替换为电视实际地址。连接时直接使用配置文件；临时切换电视可传入 `--TV_IP_Address 192.0.2.11 --port 5555`。显式参数优先于配置文件；只传其中一个时，另一个仍从配置文件读取。`TV_IP_Address` 只填 IP 或主机名，不包含端口。`adb` 设置本机 ADB 可执行文件路径；命令行或 MCP 显式传入 `adb` 时优先。配置文件缺失或值无效时会明确报错。
 
 ### 使用 USB 有线 ADB
 
@@ -71,7 +73,7 @@ python main.py observe --from-json full.json --out observe.json
 
 ## 模型观察结果
 
-`--mode observe` 输出 `tv-observation/v1`。这是给模型使用的页面摘要，默认最多列出 80 个有信息的页面节点；完整树可按需另取。以下是字段形状示例，具体值来自当次采集：
+`python main.py observe` 输出 `tv-observation/v1`。这是给模型使用的页面摘要，默认最多列出 80 个有信息的页面节点；完整树可按需另取。以下是字段形状示例，具体值来自当次采集：
 
 ```json
 {
@@ -121,7 +123,7 @@ python main.py observe --from-json full.json --out observe.json
 
 ## 通过 MCP 接入模型
 
-`python main.py mcp` 启动只读 stdio MCP 服务。在仓库根目录运行下面的命令，取得当前机器上的绝对路径：
+`python main.py mcp` 启动 stdio MCP 服务，提供五个界面读取工具及一个默认设备配置写入工具。在仓库根目录运行下面的命令，取得当前机器上的绝对路径：
 
 ```powershell
 (Resolve-Path .\.venv\Scripts\python.exe).Path
@@ -200,7 +202,7 @@ USB 的五个读取工具调用参数均可为 `{"serial": "USB_SERIAL"}`。`set
 
 ```json
 {
-  "TV_IP_Address": "192.168.1.148",
+  "TV_IP_Address": "192.0.2.11",
   "no_connect": false,
   "no_dumpsys": false,
   "max_nodes": 20
@@ -220,7 +222,7 @@ USB 的五个读取工具调用参数均可为 `{"serial": "USB_SERIAL"}`。`set
 
 ```json
 {
-  "TV_IP_Address": "192.168.1.148",
+  "TV_IP_Address": "192.0.2.11",
   "no_dumpsys": true,
   "max_nodes": 20
 }
@@ -232,7 +234,7 @@ USB 的五个读取工具调用参数均可为 `{"serial": "USB_SERIAL"}`。`set
 
 ```json
 {
-  "TV_IP_Address": "192.168.1.148",
+  "TV_IP_Address": "192.0.2.11",
   "no_dumpsys": false
 }
 ```
@@ -241,7 +243,7 @@ USB 的五个读取工具调用参数均可为 `{"serial": "USB_SERIAL"}`。`set
 
 ```json
 {
-  "TV_IP_Address": "192.168.1.148",
+  "TV_IP_Address": "192.0.2.11",
   "no_dumpsys": true
 }
 ```
@@ -266,6 +268,22 @@ MCP 工具没有 `--from-json`、`--out` 或按键参数；每次调用都会重
 ```
 
 `total` 从进入工具函数算到函数返回，不含 MCP 库序列化结果和 stdio 传输的时间。阶段含义：`connect` 读取 `config.json` 并连接 ADB；`capture_tree` 读取设备属性、dumpsys、uiautomator2 dump 并配对；`summarize` 生成焦点、观察或可视摘要；`screenshot` 截屏；`mark` 画焦点红框；`encode` 生成 Base64；`save` 写 PNG 文件。没有执行的阶段不出现；某阶段抛出异常时，首行末尾追加 `failed at <阶段名>`。日志显示在哪里取决于宿主：在终端直接运行 `python main.py mcp` 时显示在该终端，其他宿主一般写进它的 MCP 服务日志。
+
+## 一键生成电视现场 HTML 报告
+
+在电视停留于待记录的页面后，从仓库根目录运行：
+
+```powershell
+.\.venv\Scripts\python.exe scripts/collect_tv_scene.py
+```
+
+脚本使用当前 Python 环境启动本地 stdio MCP 服务，动态发现工具并串行调用；始终跳过 `set_default_device`。当前会调用 `get_current_focus`、`get_focus_screenshot`、`get_screen_summary`、`get_full_tree` 和 `get_visible_controls`。脚本不接收设备命令行参数，所有调用沿用 `config.json` 中的 USB serial 或网络地址、端口和 ADB 路径。
+
+终端打印生成文件的绝对路径：`_temp/tv-tool-report-<时间>.html`。用浏览器打开即可离线查看当前截图、焦点、窗口、分辨率、可见文字、各工具状态及可展开的返回 JSON。PNG 嵌入报告，原始 JSON 展开区用提示替代重复的图片 Base64。
+
+每张工具卡片右侧显示调用总耗时、服务端总计及各阶段毫秒数。调用总耗时从发起 `call_tool` 到 SDK 返回完整响应，包含协议传输和处理；服务端总计及阶段来自现有 stderr 计时块，阶段保留一位小数。服务启动、工具发现和报告写入不计入单个工具的调用时间；没有取得阶段日志时显示不可用。
+
+工具级失败会保留错误信息并继续采集，全部调用成功时退出码为 `0`，有失败时为 `1`；服务启动或工具发现失败、没有可调用工具时不生成报告。各工具、树与截图分次采集，界面变化时可能对应不同瞬间。HTML 含当前画面、文字和本机路径，保留在 Git 忽略的 `_temp/` 下，分享前应检查内容。
 
 ## 用 MCP Inspector 网页调试
 
@@ -304,7 +322,7 @@ npx -y @modelcontextprotocol/inspector .\.venv\Scripts\python.exe .\main.py mcp
 
 ```json
 {
-  "TV_IP_Address": "192.168.1.148",
+  "TV_IP_Address": "192.0.2.11",
   "no_dumpsys": false,
   "max_nodes": 20
 }
@@ -320,14 +338,14 @@ stdio 服务的标准输出专用于 MCP 协议，诊断信息写入标准错误
 python main.py tree --mode full --out full.json
 python main.py visible --out visible.json
 python main.py visible --from-json full.json --out visible.json
-python main.py tree --TV_IP_Address 192.168.1.148 --port 5555 --mode slim --out slim.json
+python main.py tree --TV_IP_Address 192.0.2.11 --port 5555 --mode slim --out slim.json
 python main.py tree --from-json full.json --mode slim --out slim.json
 python main.py tree --mode slim --keep empty,offscreen --out kept.json
 python main.py tree --prune-list
 
 python main.py input DOWN,RIGHT,OK --delay 0.6
 python main.py shot --json full.json --source both --out focus.png
-python scripts/bench_screencap.py 192.168.1.148 --count 50
+python scripts/bench_screencap.py 192.0.2.11 --count 50
 ```
 
 `full` 是未剪枝的一体式 JSON，`slim` 是对同一份全量树进行剪枝，`observe` 是给模型的焦点与页面摘要，`visible` 是只覆盖屏幕内控件的精简观察。`--from-json` 应传入已有的全量 JSON，并用于 `tree --mode slim`、`observe` 或 `visible`；已剪掉的信息无法从 `slim` 恢复。`--keep` 只用于 `slim`。`observe` 和 `tree` 可用 `--no-dumpsys` 只采集 a11y；`visible` 始终只采集 a11y。正常双源采集失败时不会悄悄切换到单源结果。`observe`、`tree`、`visible` 的用法、文件或连接错误返回退出码 `2`，连接后的采集失败返回 `3`；`shot` 和 `input` 自身失败返回 `1`，连接失败返回 `2`。`--out` 写普通 JSON 文件时先写同目录临时文件再替换目标，写入或替换失败时旧文件保持完整并清理临时文件；设备输出（如 Windows `NUL`、`os.devnull`）直接写入，不提供普通文件的原子替换保证。不传子命令时只显示帮助，不连接 TV。
@@ -387,6 +405,11 @@ tvuitree/
   infrastructure/           ADB、uiautomator2、快照读取和 PNG 画框
 tests/
   selftest_tree.py          离线回归断言
+scripts/
+  collect_tv_scene.py       MCP 现场采集与单文件 HTML 报告
+  bench_mcp.py              MCP 与直接截图耗时压测
+  bench_screencap.py        截图延迟压测
+  start_mcp_inspector.ps1   启动 MCP Inspector
 ```
 
 采集数据流为：ADB 读取设备状态 → 基础设施层读取 a11y 与 dumpsys → 应用层组织快照 → 领域层解析并按 R0–R3 配对 → 生成 full JSON。slim 从同一份 full JSON 剪枝；观察摘要从 full JSON 提取焦点、上下文、页面节点和证据。CLI 与 MCP 调用同一应用服务。
