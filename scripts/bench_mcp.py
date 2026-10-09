@@ -10,13 +10,14 @@ import hashlib
 import importlib.metadata
 import io
 import json
+import math
 import os
 import re
 import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import TextIO
+from typing import Optional, TextIO
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -24,7 +25,6 @@ sys.path.insert(0, str(ROOT))
 from PIL import Image
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from scripts.bench_screencap import positive_int, summarize
 from tvuitree.application.connection import connection_options, connect_device
 from tvuitree.application.observation import collect_observation
 from tvuitree.infrastructure.image import capture
@@ -40,6 +40,36 @@ CASES = (
     ("get_focus_screenshot", "get_focus_screenshot", {}),
     ("direct_screenshot", "direct_screenshot", {}),
 )
+
+
+def positive_int(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"必须是正整数：{text!r}")
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"必须是正整数：{text!r}")
+    return value
+
+
+def percentile(sorted_values: list[float], pct: float) -> float:
+    """最近秩法：不插值，结果一定是某次实测值。"""
+    rank = max(1, math.ceil(pct / 100 * len(sorted_values)))
+    return sorted_values[rank - 1]
+
+
+def summarize(durations_ms: list[float]) -> Optional[dict[str, float]]:
+    if not durations_ms:
+        return None
+    values = sorted(durations_ms)
+    return {
+        "min": values[0],
+        "mean": sum(values) / len(values),
+        "p50": percentile(values, 50),
+        "p90": percentile(values, 90),
+        "p99": percentile(values, 99),
+        "max": values[-1],
+    }
 
 
 def parse_timing(text: str, tool: str) -> dict:

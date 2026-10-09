@@ -2,17 +2,35 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
 from mcp.types import CallToolResult
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts.bench_mcp import check_result, format_report, parse_timing, summarize_samples
+from scripts.bench_mcp import (
+    check_result, format_report, parse_timing, percentile, positive_int, summarize, summarize_samples,
+)
 
 
 def main() -> None:
     """验证真实日志形状、错误边界和成功同轮比较。"""
+    assert positive_int("3") == 3
+    for invalid in ("0", "-1", "abc"):
+        try:
+            positive_int(invalid)
+        except argparse.ArgumentTypeError:
+            pass
+        else:
+            raise AssertionError("次数必须是正整数")
+    assert percentile([1.0, 2.0, 3.0, 4.0], 50) == 2.0
+    assert percentile([1.0, 2.0, 3.0, 4.0], 99) == 4.0
+    assert percentile([7.0], 90) == 7.0
+    assert summarize([]) is None
+    assert summarize([30.0, 10.0, 20.0]) == {
+        "min": 10.0, "mean": 20.0, "p50": 20.0, "p90": 30.0, "p99": 30.0, "max": 30.0,
+    }
     block = "noise\n[tv-uitree] 12:34:56.123 get_screen_summary  total 100.0 ms\n  connect 10.0 ms 10.0%\n  capture_tree 90.0 ms 90.0%\n"
     parsed = parse_timing(block, "get_screen_summary")
     assert parsed == {"server_ms": 100.0, "stages_ms": {"connect": 10.0, "capture_tree": 90.0}, "failed_stage": None}
@@ -55,7 +73,7 @@ def main() -> None:
                           "config_unchanged": True, "status": "已中断", "samples": samples,
                           "summary": summary})
     assert "不能作为同场景结论" in text and "阶段 capture_tree" in text
-    print("压测离线自检通过：日志归属、失败阶段、预热/失败排除、同轮比较与空样本")
+    print("压测离线自检通过：参数校验、最近秩统计、日志归属、失败阶段、预热/失败排除、同轮比较与空样本")
 
 
 if __name__ == "__main__":

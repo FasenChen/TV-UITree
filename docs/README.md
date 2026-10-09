@@ -8,6 +8,8 @@
 
 ## MCP 工具命名
 
+- [网络与 USB 设置工具拆分](reports/2026-10-09-split-device-setters.md)：网络工具使用 IP 和可选 port，USB 工具使用 serial；旧设置工具移除，现场只读采集同步跳过两个设置工具，1273 条离线断言及真实 stdio 验证通过。
+
 - [实施计划](superpowers/plans/2026-10-09-mcp-tool-names.md)：两处 MCP 工具改名及消费者同步。
 - [Ponytail 计划审核](reviews/2026-10-09-mcp-tool-names-plan-review.md)：独立审核通过，无阻塞问题。
 - [Ponytail 代码终审](reviews/2026-10-09-mcp-tool-names-code-review.md)：独立复跑自检及 AST 对比通过，无阻塞问题。
@@ -71,10 +73,11 @@
 
 ## 使用指南和其他计划
 
+- [独立截图压测脚本精简](reports/2026-10-09-remove-screencap-bench.md)：删除旧入口，原样迁移参数与统计函数；MCP 压测自检、1203 条主回归和前后 AST 对比通过。
 - [MCP 与直接截图耗时压测](bench-mcp.md)：脚本参数、同场景比较条件、客户端与服务端时间、各阶段、统计和错误处理。
 - [MCP Inspector 通用使用指南](MCP_Inspector_通用使用指南.md)
 - [MCP 工具耗时计划](superpowers/plans/2026-09-29-mcp-tool-timing.md)
-- [截图压测计划](superpowers/plans/2026-09-30-screencap-bench.md)
+- [截图压测历史计划](superpowers/plans/2026-09-30-screencap-bench.md)：独立脚本已移除；当前统一使用 [MCP 与直接截图耗时压测](bench-mcp.md)。
 - [默认设备配置计划](superpowers/plans/2026-09-30-set-default-device.md)
 
 ## 存放约定
