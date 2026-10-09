@@ -6,8 +6,10 @@ import asyncio
 import datetime as dt
 import html
 import json
-import os
+import re
 import sys
+import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -80,6 +82,36 @@ def _has_error(record: dict[str, Any]) -> bool:
     )
 
 
+def _parse_server_timings(text: str) -> dict[str, dict[str, Any]]:
+    """解析 MCP 服务 stderr 中每个工具的计时块。"""
+    lines = text.splitlines()
+    timings = {}
+    header_pattern = re.compile(
+        r"^\[tv-uitree\] \d{2}:\d{2}:\d{2}\.\d{3} (\w+)  total (\d+(?:\.\d+)?) ms(?:  failed at (\w+))?$"
+    )
+    stage_pattern = re.compile(r"^  (\w+)\s+(\d+(?:\.\d+)?) ms\s+(\d+(?:\.\d+)?)%$")
+    index = 0
+    while index < len(lines):
+        header = header_pattern.fullmatch(lines[index])
+        if header is None:
+            index += 1
+            continue
+        stages = []
+        index += 1
+        while index < len(lines) and lines[index].startswith("  "):
+            stage = stage_pattern.fullmatch(lines[index])
+            if stage is None:
+                break
+            stages.append({"name": stage[1], "ms": float(stage[2]), "share": float(stage[3])})
+            index += 1
+        timings[header[1]] = {
+            "server_ms": float(header[2]),
+            "failed_stage": header[3],
+            "stages": stages,
+        }
+    return timings
+
+
 async def _collect() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     """通过本地 stdio MCP 服务调用除默认设备写入外的全部工具。"""
     server = StdioServerParameters(
@@ -90,7 +122,7 @@ async def _collect() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
         encoding_error_handler="replace",
     )
     records = []
-    with open(os.devnull, "w", encoding="utf-8") as server_log:
+    with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as server_log:
         async with stdio_client(server, errlog=server_log) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
@@ -104,12 +136,15 @@ async def _collect() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
                         continue
                     print(f"正在采集：{tool.name}", flush=True)
                     started = dt.datetime.now().astimezone()
+                    call_started = time.perf_counter()
+                    call_ms = None
                     try:
                         result = await session.call_tool(
                             tool.name,
                             {},
                             read_timeout_seconds=dt.timedelta(minutes=3),
                         )
+                        call_ms = (time.perf_counter() - call_started) * 1000
                         payload, png = _tool_payload(result)
                         record = {
                             "name": tool.name,
@@ -118,8 +153,11 @@ async def _collect() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
                             "payload": payload,
                             "png_base64": png,
                             "is_error": bool(result.isError),
+                            "call_ms": call_ms,
                         }
                     except Exception as exc:
+                        if call_ms is None:
+                            call_ms = (time.perf_counter() - call_started) * 1000
                         record = {
                             "name": tool.name,
                             "description": tool.description or "",
@@ -127,8 +165,14 @@ async def _collect() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
                             "payload": {"call_error": f"{type(exc).__name__}: {exc}"},
                             "png_base64": None,
                             "is_error": True,
+                            "call_ms": call_ms,
                         }
                     records.append(record)
+        server_log.flush()
+        server_log.seek(0)
+        timings = _parse_server_timings(server_log.read())
+    for item in records:
+        item["timing"] = timings.get(item["name"])
     return records, manifest
 
 
@@ -215,9 +259,30 @@ def _tool_rows(records: list[dict[str, Any]]) -> str:
         failed = _has_error(item)
         status = "需要查看" if failed else "已返回"
         status_class = "failed" if failed else "success"
+        call_ms = item.get("call_ms")
+        timing = item.get("timing")
+        if isinstance(call_ms, (int, float)):
+            call_time = f"{call_ms:.0f} ms" if call_ms < 1000 else f"{call_ms / 1000:.2f} s"
+        else:
+            call_time = "未知"
+        if isinstance(timing, dict):
+            server_ms = timing.get("server_ms")
+            server_time = f"{server_ms:.0f} ms" if isinstance(server_ms, (int, float)) and server_ms < 1000 else (
+                f"{server_ms / 1000:.2f} s" if isinstance(server_ms, (int, float)) else "未知"
+            )
+            stage_html = "".join(
+                f'<div class="timing-stage"><span>{html.escape(stage["name"])}</span>'
+                f'<b>{stage["ms"]:.1f} ms</b></div>'
+                for stage in timing.get("stages", [])
+            ) or '<div>未记录阶段</div>'
+        else:
+            server_time = "未返回"
+            stage_html = '<div>服务端阶段计时不可用</div>'
         rows.append(f'''<article class="tool-row">
   <div class="tool-heading"><div><h3>{html.escape(item["name"])}</h3><p>{html.escape(item["description"])}</p></div>
-  <span class="tool-status {status_class}"><span aria-hidden="true"></span>{status}</span></div>
+  <div class="tool-status {status_class}"><div class="tool-result"><span aria-hidden="true"></span>{status}</div>
+  <div class="timing-total">调用总耗时 <strong>{call_time}</strong></div>
+  <div class="timing-server">服务端总计 {server_time}</div><div class="timing-stages">{stage_html}</div></div></div>
   <div class="tool-meta"><span>采集时间 {html.escape(item["time"])}</span><span>字段 {html.escape(fields or "无")}</span></div>
   <details><summary>展开原始返回</summary><pre>{pretty}</pre></details>
 </article>''')
@@ -246,9 +311,11 @@ def _render_report(records: list[dict[str, Any]], manifest: list[dict[str, str]]
 .readout{{padding:12px 0 0}}.readout-label{{font-size:12px;color:var(--muted);margin:0 0 5px}}.readout h2{{font-size:clamp(23px,3vw,34px);line-height:1.16;letter-spacing:-.025em;margin:0 0 20px;overflow-wrap:anywhere}}.readout-rule{{height:1px;background:var(--line);margin:22px 0}}.component{{font-size:14px;overflow-wrap:anywhere;margin:0 0 22px;color:var(--ink)}}
 .measurements{{margin:0;border-top:1px solid var(--line)}}.measurements div{{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line)}}.measurements dt{{font-size:13px;color:var(--muted)}}.measurements dd{{margin:0;font-variant-numeric:tabular-nums;font-weight:620;text-align:right}}
 .visible-list{{padding:22px 0 30px;border-bottom:1px solid var(--line)}}.visible-list h2,.section-title{{font-size:20px;margin:0 0 13px;letter-spacing:-.015em}}.labels{{display:flex;flex-wrap:wrap;gap:7px}}.item-label{{display:inline-block;border:1px solid #b8c6c0;padding:5px 10px;font-size:13px;background:#f5f8f4;color:#29433e}}.item-empty{{color:var(--muted);font-size:14px}}
-.tools-section{{padding-top:34px}}.section-head{{display:flex;justify-content:space-between;align-items:baseline;gap:20px;margin-bottom:8px}}.section-title{{margin:0}}.section-head p{{margin:0;color:var(--muted);font-size:13px}}.tool-row{{border-top:1px solid var(--line);padding:20px 0 22px}}.tool-heading{{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}}.tool-heading h3{{font:600 18px/1.25 "Cascadia Code","Consolas",monospace;margin:0 0 5px}}.tool-heading p{{font-size:14px;color:var(--muted);margin:0;max-width:850px}}.tool-status{{white-space:nowrap;font-size:12px;display:flex;gap:7px;align-items:center;padding-top:2px}}.tool-status span{{width:8px;height:8px;display:inline-block;border-radius:50%;background:var(--green)}}.tool-status.failed{{color:#973e2b}}.tool-status.failed span{{background:var(--signal)}}
+.tools-section{{padding-top:34px}}.section-head{{display:flex;justify-content:space-between;align-items:baseline;gap:20px;margin-bottom:8px}}.section-title{{margin:0}}.section-head p{{margin:0;color:var(--muted);font-size:13px}}.tool-row{{border-top:1px solid var(--line);padding:20px 0 22px}}.tool-heading{{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}}.tool-heading h3{{font:600 18px/1.25 "Cascadia Code","Consolas",monospace;margin:0 0 5px}}.tool-heading p{{font-size:14px;color:var(--muted);margin:0;max-width:850px}}
+.tool-status{{white-space:normal;font-size:12px;display:flex;flex:0 0 250px;width:250px;flex-direction:column;align-items:stretch;gap:6px;border-left:1px solid var(--line);padding:1px 0 0 16px;text-align:left}}.tool-result{{display:flex;align-items:center;gap:7px;font-size:12px}}.tool-result>span{{width:8px;height:8px;flex:0 0 8px;display:inline-block;border-radius:50%;background:var(--green)}}.tool-status.failed{{color:#973e2b}}.tool-status.failed .tool-result>span{{background:var(--signal)}}
+.timing-total{{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:13px;color:var(--ink);font-variant-numeric:tabular-nums}}.timing-total strong{{font-size:17px;font-weight:650}}.timing-server{{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}}.timing-stages{{display:grid;gap:3px;font-size:11px;line-height:1.4;color:var(--muted);font-variant-numeric:tabular-nums}}.timing-stage{{display:flex;justify-content:space-between;gap:12px}}.timing-stage b{{font-weight:500;white-space:nowrap}}.tool-status.failed .timing-total,.tool-status.failed .timing-server,.tool-status.failed .timing-stages{{color:inherit}}
 .tool-meta{{display:flex;flex-wrap:wrap;gap:8px 22px;color:var(--muted);font-size:12px;margin:12px 0}}details{{border-left:2px solid #b7c4be;padding:2px 0 2px 12px}}summary{{cursor:pointer;color:var(--green);font-size:13px;font-weight:620;width:max-content;max-width:100%}}summary:focus-visible{{outline:3px solid #236e5d;outline-offset:4px}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;max-height:560px;overflow:auto;background:var(--code);color:var(--code-text);padding:17px 19px;margin:12px 0 0;font:12px/1.55 "Cascadia Code","Consolas",monospace}}
-.footnote{{border-top:1px solid var(--line);padding-top:18px;margin-top:24px;color:var(--muted);font-size:12px}}@media(max-width:760px){{.page{{padding:0 22px 42px}}.cover{{padding:34px 0 24px;align-items:flex-start;flex-direction:column}}.run-state{{border-left:0;border-top:1px solid var(--line);padding:10px 0 0;width:100%}}.run-state strong{{display:inline;margin-right:8px}}.run-state span{{display:inline}}.overview{{grid-template-columns:1fr;gap:24px}}.readout{{padding:0}}.section-head{{align-items:flex-start;flex-direction:column;gap:4px}}.tool-heading{{flex-direction:column;gap:10px}}}}
+.footnote{{border-top:1px solid var(--line);padding-top:18px;margin-top:24px;color:var(--muted);font-size:12px}}@media(max-width:760px){{.page{{padding:0 22px 42px}}.cover{{padding:34px 0 24px;align-items:flex-start;flex-direction:column}}.run-state{{border-left:0;border-top:1px solid var(--line);padding:10px 0 0;width:100%}}.run-state strong{{display:inline;margin-right:8px}}.run-state span{{display:inline}}.overview{{grid-template-columns:1fr;gap:24px}}.readout{{padding:0}}.section-head{{align-items:flex-start;flex-direction:column;gap:4px}}.tool-heading{{flex-direction:column;gap:10px}}.tool-status{{width:100%;flex:none;border-left:0;border-top:1px solid var(--line);padding:10px 0 0}}}}
 @media(max-width:420px){{.page{{padding-inline:15px}}.masthead{{align-items:flex-start;gap:10px;flex-direction:column}}.measurements div{{gap:8px}}}}
 </style></head><body><main class="page">
 <header class="masthead"><div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>TV UITree</span><span>/</span><span>现场采集</span></div><time>{html.escape(now.strftime("%Y-%m-%d %H:%M:%S %z"))}</time></header>
