@@ -1351,15 +1351,21 @@ try:
     }
     t.eq(set(mcp_schemas), {
         "get_screen_summary", "get_full_tree", "get_visible_controls",
-        "get_current_focus", "get_focus_screenshot", "set_default_device",
-    }, "MCP 仅注册六个现行工具名称，不保留旧名别名")
+        "get_current_focus", "get_focus_screenshot", "set_default_network_device", "set_default_usb_device",
+    }, "MCP 注册五个读取和两个设置工具，不保留旧名别名")
     for name in ("get_current_focus", "get_focus_screenshot"):
         t.eq(set(mcp_schemas[name]["properties"]), {"TV_IP_Address", "port", "adb", "serial"},
              f"{name} 只公开设备连接参数")
-    t.eq(set(mcp_schemas["set_default_device"]["properties"]), {"TV_IP_Address", "port", "serial"},
-         "set_default_device 公开网络地址或 USB 序列号")
-    t.eq(mcp_schemas["set_default_device"].get("required", []), [],
-         "set_default_device 在共享服务中校验目标二选一")
+    t.eq(set(mcp_schemas.get("set_default_network_device", {}).get("properties", {})), {"TV_IP_Address", "port"},
+         "网络设置仅公开 IP 和端口")
+    t.eq(mcp_schemas.get("set_default_network_device", {}).get("required", []), ["TV_IP_Address"],
+         "网络设置必须提供 IP，端口可省略")
+    t.eq(mcp_schemas["set_default_network_device"]["properties"]["port"].get("default"), None,
+         "网络设置的端口默认值为 null，不写死 5555")
+    t.eq(set(mcp_schemas.get("set_default_usb_device", {}).get("properties", {})), {"serial"},
+         "USB 设置仅公开序列号")
+    t.eq(mcp_schemas.get("set_default_usb_device", {}).get("required", []), ["serial"],
+         "USB 设置必须提供序列号")
     t.eq(set(mcp_schemas["get_visible_controls"]["properties"]),
          {"TV_IP_Address", "port", "adb", "no_connect", "serial"},
          "get_visible_controls 只公开设备连接参数，不采集无关的 dumpsys")
@@ -2070,24 +2076,24 @@ try:
 
     timing.LOG_STREAM = io.StringIO()
     path = _write_fixture_config(_FIXTURE_CONFIG)
-    mcp_result = mcp_interface.set_default_device(TV_IP_Address="10.0.0.7")
+    mcp_result = mcp_interface.set_default_network_device(TV_IP_Address="10.0.0.7")
     t.eq(mcp_result["current"], {"TV_IP_Address": "10.0.0.7", "port": 5555},
          "MCP 工具切换默认设备")
-    t.eq(_timing_calls(), [("set_default_device", ["save"], None)],
-         "set_default_device 写一行耗时，只有 save 阶段")
+    t.eq(_timing_calls(), [("set_default_network_device", ["save"], None)],
+         "set_default_network_device 写一行耗时，只有 save 阶段")
 
     before = path.read_bytes()
-    bad = mcp_interface.set_default_device(TV_IP_Address="10.0.0.8:5555")
+    bad = mcp_interface.set_default_network_device(TV_IP_Address="10.0.0.8:5555")
     t.eq(set(bad), {"error", "error_type"}, "非法地址返回结构化错误")
     t.eq(bad["error_type"], "ValueError", "错误类型是 ValueError")
     t.eq(path.read_bytes(), before, "MCP 非法调用不改动配置")
-    t.eq(_timing_calls(), [("set_default_device", ["save"], "save")],
+    t.eq(_timing_calls(), [("set_default_network_device", ["save"], "save")],
          "失败时日志标出 failed=save")
 
     _original_replace = device_config.os.replace
     device_config.os.replace = _replace_failure
     try:
-        locked = mcp_interface.set_default_device(TV_IP_Address="10.0.0.9")
+        locked = mcp_interface.set_default_network_device(TV_IP_Address="10.0.0.9")
     finally:
         device_config.os.replace = _original_replace
     t.ok("无法写入设备配置文件" in locked.get("error", ""), "写入失败返回可读错误")
@@ -2099,7 +2105,7 @@ try:
                      {"TV_IP_Address": "10.0.0.4", "port": 5557.0},
                      {"TV_IP_Address": 123}):
         try:
-            asyncio.run(mcp_interface.mcp.call_tool("set_default_device", bad_args))
+            asyncio.run(mcp_interface.mcp.call_tool("set_default_network_device", bad_args))
         except Exception:
             pass
         t.eq(path.read_bytes(), before, f"MCP 调用不宽松转换参数：{bad_args}")
@@ -3250,16 +3256,16 @@ with patch.object(device_config, "CONFIG_PATH", usb_config_path):
             usb_atomic_error = isinstance(error, ValueError)
     t.ok(usb_atomic_error, "USB 原子替换失败返回配置错误")
     t.eq(usb_config_path.read_bytes(), before, "USB 保存失败保留配置字节")
-    for args in ({"serial": 123}, {"serial": True}, {"serial": "USB_FIXTURE", "port": 5555}):
+    for args in ({"serial": 123}, {"serial": True}, {"serial": "USB\0"}, {}):
         try:
-            asyncio.run(mcp_interface.mcp.call_tool("set_default_device", args))
+            asyncio.run(mcp_interface.mcp.call_tool("set_default_usb_device", args))
         except Exception:
             pass
         t.eq(usb_config_path.read_bytes(), before, "MCP strict/目标校验失败不能修改配置")
     with patch.object(timing, "LOG_STREAM", io.StringIO()):
-        asyncio.run(mcp_interface.mcp.call_tool("set_default_device", {"serial": "USB_MCP"}))
+        asyncio.run(mcp_interface.mcp.call_tool("set_default_usb_device", {"serial": "USB_MCP"}))
         t.eq(app_connection.connection_options().target, "USB_MCP", "真实 MCP 协议可保存 USB 默认值")
-        asyncio.run(mcp_interface.mcp.call_tool("set_default_device", {"TV_IP_Address": "192.0.2.3"}))
+        asyncio.run(mcp_interface.mcp.call_tool("set_default_network_device", {"TV_IP_Address": "192.0.2.3"}))
         t.eq(app_connection.connection_options().target, "192.0.2.3:5555", "真实 MCP 协议可切回网络")
         t.eq(json.loads(usb_config_path.read_text())["adb"], "adb", "MCP 切换始终保留 ADB 设置")
 
@@ -3369,6 +3375,67 @@ for index, (config, arguments, expected) in enumerate([
             usb_bench_rc = error.code
     t.eq(usb_bench_rc, 0, "压测入口离线解析目标")
     t.eq(usb_bench_arguments[-1] if usb_bench_arguments else None, expected, "直接截图与 MCP 压测固定同一目标参数")
+
+t.group("38. 网络与 USB 默认设置工具隔离及只读采集")
+from scripts import collect_tv_scene as settings_scene
+
+settings_config_path = Path(TD) / "split-settings.json"
+settings_config_path.write_text(json.dumps({"TV_IP_Address": "192.0.2.1", "port": 5556, "adb": "adb"}), encoding="utf-8")
+with patch.object(device_config, "CONFIG_PATH", settings_config_path), \
+     patch.object(timing, "LOG_STREAM", io.StringIO()):
+    settings_network = mcp_interface.set_default_network_device("192.0.2.2")
+    t.eq(settings_network["current"], {"TV_IP_Address": "192.0.2.2", "port": 5556}, "网络设置省略端口保留非 5555 端口")
+    settings_usb = mcp_interface.set_default_usb_device("USB_SETTINGS")
+    t.eq(settings_usb["current"], {"serial": "USB_SETTINGS"}, "独立 USB 设置保存序列号")
+    t.eq(json.loads(settings_config_path.read_text())["port"], 5556, "USB 设置保留旧网络端口")
+    t.eq(_timing_calls(), [("set_default_network_device", ["save"], None),
+                           ("set_default_usb_device", ["save"], None)], "两个设置工具各写自己的计时块")
+    settings_before = settings_config_path.read_bytes()
+    settings_bad = mcp_interface.set_default_usb_device("USB\0")
+    t.eq(settings_bad.get("error_type"), "ValueError", "USB 设置返回输入校验错误")
+    t.eq(settings_config_path.read_bytes(), settings_before, "USB 无效序列号不修改配置")
+    t.eq(_timing_calls(), [("set_default_usb_device", ["save"], "save")], "USB 设置失败计时标记 save")
+    settings_restored = mcp_interface.set_default_network_device("192.0.2.3")
+    t.eq(settings_restored["previous"], {"serial": "USB_SETTINGS"}, "切回网络保留 previous USB 目标")
+    t.eq(settings_restored["current"], {"TV_IP_Address": "192.0.2.3", "port": 5556}, "切回网络仍保留旧端口")
+    t.ok("serial" not in json.loads(settings_config_path.read_text()), "网络设置移除默认 USB 序列号")
+    t.eq(json.loads(settings_config_path.read_text())["adb"], "adb", "两个设置入口保留 ADB 路径")
+
+@contextlib.asynccontextmanager
+async def settings_fake_stdio(*args, **kwargs):
+    """提供现场采集所需的异步上下文，避免启动外部服务。"""
+    yield None, None
+
+class SettingsSceneSession:
+    """记录现场采集的实际调用，保留会话生命周期契约。"""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def __aenter__(self) -> SettingsSceneSession:
+        return self
+
+    async def __aexit__(self, *args) -> None:
+        pass
+
+    async def initialize(self) -> None:
+        pass
+
+    async def list_tools(self) -> SimpleNamespace:
+        return SimpleNamespace(tools=[SimpleNamespace(name=name, description="fixture") for name in (
+            "get_screen_summary", "set_default_network_device", "set_default_usb_device")])
+
+    async def call_tool(self, name: str, arguments: dict, **kwargs) -> SimpleNamespace:
+        self.calls.append(name)
+        return SimpleNamespace(content=[], structuredContent={}, isError=False)
+
+settings_session = SettingsSceneSession()
+with patch.object(settings_scene, "stdio_client", settings_fake_stdio), \
+     patch.object(settings_scene, "ClientSession", return_value=settings_session), \
+     contextlib.redirect_stdout(io.StringIO()):
+    settings_records, settings_manifest = asyncio.run(settings_scene._collect())
+t.eq(settings_session.calls, ["get_screen_summary"], "现场采集跳过网络和 USB 配置写入工具")
+t.eq([record["name"] for record in settings_records], ["get_screen_summary"], "只读报告不包含设置调用")
 
 shutil.rmtree(TD, ignore_errors=True)
 sys.exit(t.summary())

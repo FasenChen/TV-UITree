@@ -1,7 +1,7 @@
 """MCP tools for TV observation started with main.py mcp over stdio."""
 
 # 服务读取 TV 状态、完整树和截图，不发送按键。
-# 唯一的写操作是 set_default_device 修改 config.json 的默认设备。
+# 两个默认设备设置工具修改 config.json，其余工具只读。
 # CLI 和 MCP 共用应用层的观察与截图服务。
 
 from __future__ import annotations
@@ -358,16 +358,28 @@ def get_visible_controls(
 
 
 @mcp.tool()
-def set_default_device(
+def set_default_network_device(
     # strict：参数会写入配置，不能让 pydantic 把 true、"5556" 或 5557.0 宽松转换成端口
-    TV_IP_Address: Annotated[Optional[str], Field(strict=True)] = None,
+    TV_IP_Address: Annotated[str, Field(strict=True)],
     port: Annotated[Optional[int], Field(strict=True)] = None,
-    serial: Annotated[Optional[str], Field(strict=True)] = None,
 ) -> dict:
-    """保存默认网络地址或 USB 序列号（二选一）；只写配置，不连接设备。"""
-    with tool_timing("set_default_device") as timer:
+    """保存默认网络 ADB 的 IP 和可选端口；省略端口保留配置原值，只写配置，不连接设备。"""
+    with tool_timing("set_default_network_device") as timer:
         try:
             with timer.stage("save"):
-                return update_default_device(TV_IP_Address=TV_IP_Address, port=port, serial=serial)
+                return update_default_device(TV_IP_Address=TV_IP_Address, port=port)
+        except Exception as exc:
+            return {"error": str(exc), "error_type": type(exc).__name__}
+
+
+@mcp.tool()
+def set_default_usb_device(
+    serial: Annotated[str, Field(strict=True)],
+) -> dict:
+    """保存默认 USB ADB 的设备序列号，保留网络配置；只写配置，不连接设备。"""
+    with tool_timing("set_default_usb_device") as timer:
+        try:
+            with timer.stage("save"):
+                return update_default_device(serial=serial)
         except Exception as exc:
             return {"error": str(exc), "error_type": type(exc).__name__}

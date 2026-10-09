@@ -18,7 +18,7 @@ from mcp.client.stdio import stdio_client
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXCLUDED_TOOLS = {"set_default_device"}
+EXCLUDED_TOOLS = {"set_default_network_device", "set_default_usb_device"}
 
 
 def _json_value(value: Any) -> Any:
