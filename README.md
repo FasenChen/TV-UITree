@@ -4,13 +4,13 @@
 
 项目通过根目录唯一的 main.py 启动，没有打包或构建步骤。
 
-实施计划、评审报告和交付记录统一见 [项目文档索引](docs/README.md)。
+实施计划、评审报告和交付记录统一见 [在线项目文档索引](https://github.com/FasenChen/TV-UITree/blob/main/docs/README.md)。后续 Release 的源码运行 ZIP 不包含 `docs/` 目录，文档保留在仓库中。
 
 ## 下载版本
 
 固定版本见 [GitHub Releases](https://github.com/FasenChen/TV-UITree/releases)。当前版本为 `v0.2.0`，建议下载附件 `tv-uitree-v0.2.0.zip`，其中设备配置和相关文档示例已替换为占位值。解压后先修改 `config.json` 的 `TV_IP_Address`；`adb` 默认设为 `adb`，需要将 ADB 加入 PATH 或填写本机完整路径，再按下方步骤安装依赖。
 
-这是源码运行包，需要 Python 和 ADB。版本范围和检查结果见 [v0.2.0 发布记录](docs/reports/2026-10-08-v0.2.0-release.md)，后续发布步骤见 [首次发布记录](docs/reports/2026-10-05-v0.1.0-release.md)。
+这是源码运行包，需要 Python 和 ADB。版本范围和检查结果见 [v0.2.0 发布记录](https://github.com/FasenChen/TV-UITree/blob/v0.2.0/docs/reports/2026-10-08-v0.2.0-release.md)，后续发布步骤见 [首次发布记录](https://github.com/FasenChen/TV-UITree/blob/main/docs/reports/2026-10-05-v0.1.0-release.md)。
 
 ## 快速开始
 
@@ -236,7 +236,7 @@ MCP 工具没有 `--from-json`、`--out` 或按键参数；每次调用都会重
 
 ## 用 MCP Inspector 网页调试
 
-Inspector 的通用安装、启动、网页操作和排错步骤见 [MCP Inspector 通用使用指南](docs/MCP_Inspector_通用使用指南.md)；本项目六个工具的用法见上文。
+Inspector 的通用安装、启动、网页操作和排错步骤见 [MCP Inspector 通用使用指南](https://github.com/FasenChen/TV-UITree/blob/main/docs/MCP_Inspector_通用使用指南.md)；本项目六个工具的用法见上文。
 
 仓库提供了一个可重复启动的 PowerShell 包装脚本，用官方 [MCP Inspector](https://github.com/modelcontextprotocol/inspector) 打开本地网页调试界面。Inspector 需要 Node.js 22.19 或更高版本；项目本身仍由 `.venv` 中的 Python 启动。
 
@@ -303,7 +303,7 @@ python scripts/bench_screencap.py 192.168.1.148 --count 50
 
 `scripts/bench_screencap.py` 压测截图耗时：参数是一个或多个设备 IP（`ip` 或 `ip:port`，未带端口时用 `--port`，默认 `5555`）和 `-n/--count` 次数。每次计时覆盖一次完整截图（发起到 PNG 全部取回并校验），不含连接；逐次打印耗时和 PNG 大小，最后给出 min / mean / p50 / p90 / p99 / max。单次失败会记下原因并继续，Ctrl+C 会打印已完成部分的统计。退出码：`0` 全部成功，`1` 有截图失败，`2` 参数或连接错误，`130` 被中断。每次运行都会写一份 UTF-8 txt 报告（汇总、逐次记录、连接失败），默认在 `_temp/bench_screencap/bench_screencap_<时间>.txt`，可用 `--report <路径>` 指定；中断时也会写出已完成部分。报告写入失败时退出码为 `2`。
 
-`python scripts/bench_mcp.py --count 10 --warmup 1` 比较同场景的五个 MCP 读取工具、tree/observe 的 a11y 模式与直接截图；设备默认读取配置。报告同时包含客户端总耗时、现有服务端总耗时、各阶段和同轮截图差值，写入 `_temp/bench_mcp/<时间>/` 的 UTF-8 TXT／JSON／JSONL 与原始 stderr。服务启动单列，预热与失败不进入成功统计，前后场景变化会标记比较条件不一致；不发送按键或修改配置。参数、边界及结果解读见 [MCP 与直接截图耗时压测](docs/bench-mcp.md)。
+`python scripts/bench_mcp.py --count 10 --warmup 1` 比较同场景的五个 MCP 读取工具、tree/observe 的 a11y 模式与直接截图；设备默认读取配置。报告同时包含客户端总耗时、现有服务端总耗时、各阶段和同轮截图差值，写入 `_temp/bench_mcp/<时间>/` 的 UTF-8 TXT／JSON／JSONL 与原始 stderr。服务启动单列，预热与失败不进入成功统计，前后场景变化会标记比较条件不一致；不发送按键或修改配置。参数、边界及结果解读见 [MCP 与直接截图耗时压测](https://github.com/FasenChen/TV-UITree/blob/main/docs/bench-mcp.md)。
 
 `slim` 默认启用八个剪枝开关：
 
