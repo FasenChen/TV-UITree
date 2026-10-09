@@ -24,6 +24,7 @@
 
 ## 最新真机验收
 
+- [MCP 脚本真机性能压测（2026-10-09）](reports/2026-10-09-mcp-performance-benchmark.md)（[GitHub Wiki](https://github.com/FasenChen/TV-UITree/wiki/MCP-Performance-Benchmark-2026-10-09)）：同一台电视分别经 USB 与网络 ADB，各 8 项、每项 30 次正式调用；含耗时对比、阶段耗时与占比明细、逐轮变化图表，读取成功率 100%，保留场景指纹限制。
 - [MCP 与直接截图可视化报告（HTML）](reports/2026-10-08-mcp-benchmark.html)：本轮静态页实测结果，支持平均值／p50／p90 切换、阶段拆解、逐次样本、数据下载和打印；离线单文件。
 - [MCP 与直接截图压测交付（2026-10-08）](reports/2026-10-08-mcp-benchmark-delivery.md)：脚本及使用文档；静态页 80 次正式调用全部成功，包含客户端、服务端、各阶段及截图比较。
 - [Channel Scan 真机自主复验（2026-10-08）](reports/2026-10-08-channel-scan-retest.md)：当前搜台设置场景的九次采集、92 项真机检查、36 项 MCP 检查全部通过；区分焦点与选中状态，原焦点和设置已保留。
@@ -34,6 +35,7 @@
 
 ## 版本发布
 
+- [v1.0.0 正式版发布记录](reports/2026-10-09-v1.0.0-release.md)：USB ADB、MCP 工具迁移、现场与压测报告、脱敏源码包及发布验证。
 - [v0.2.0 发布记录](reports/2026-10-08-v0.2.0-release.md)：漂移误报修复、MCP 对比压测、HTML 实测报告与发布验证。
 - [v0.1.0 首次发布记录](reports/2026-10-05-v0.1.0-release.md)：版本范围、下载配置、发布前验证与后续发布步骤。
 

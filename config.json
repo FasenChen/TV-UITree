@@ -1,5 +1,5 @@
 {
-  "TV_IP_Address": "192.168.1.147",
+  "TV_IP_Address": "YOUR_TV_IP",
   "port": 5555,
-  "adb": "D:\\platform-tools\\adb.exe"
+  "adb": "adb"
 }

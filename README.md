@@ -8,11 +8,11 @@
 
 ## 下载版本
 
-固定版本见 [GitHub Releases](https://github.com/FasenChen/TV-UITree/releases)。当前发布版本为 `v0.2.0`，可下载附件 `tv-uitree-v0.2.0.zip`，其中设备配置和相关文档示例已替换为占位值。解压后先修改 `config.json` 的 `TV_IP_Address`；`adb` 默认设为 `adb`，需要将 ADB 加入 PATH 或填写本机完整路径，再按下方步骤安装依赖。
+固定版本见 [GitHub Releases](https://github.com/FasenChen/TV-UITree/releases)。当前正式版为 `v1.0.0`，可下载附件 `tv-uitree-v1.0.0.zip`，其中设备配置使用占位值。解压后先修改 `config.json` 的 `TV_IP_Address`，或按下方 USB 说明设置 `serial`；`adb` 默认设为 `adb`，需要将 ADB 加入 PATH 或填写本机完整路径，再按下方步骤安装依赖。
 
-本文按当前源码说明。USB ADB 序列号支持、`get_screen_summary` / `get_visible_controls` 工具新名称、网络与 USB 默认设置工具拆分，以及现场 HTML 报告脚本均未纳入 `v0.2.0` 发布包；使用时需确认所取源码已包含对应功能。
+`v1.0.0` 包含 USB ADB 序列号支持、`get_screen_summary` / `get_visible_controls` 工具名称、网络与 USB 默认设置工具，以及现场采集与压测 HTML 报告脚本。从 `v0.2.0` 升级时，MCP 调用方需将 `observe_tv` 改为 `get_screen_summary`、`get_visible` 改为 `get_visible_controls`；旧的 `set_default_device` 已拆分为 `set_default_network_device` 和 `set_default_usb_device`。
 
-这是源码运行包，需要 Python 和 ADB。版本范围和检查结果见 [v0.2.0 发布记录](https://github.com/FasenChen/TV-UITree/blob/v0.2.0/docs/reports/2026-10-08-v0.2.0-release.md)，后续发布步骤见 [首次发布记录](https://github.com/FasenChen/TV-UITree/blob/main/docs/reports/2026-10-05-v0.1.0-release.md)。
+这是源码运行包，需要 Python 和 ADB。版本范围和检查结果见 [v1.0.0 发布记录](https://github.com/FasenChen/TV-UITree/blob/v1.0.0/docs/reports/2026-10-09-v1.0.0-release.md)，后续发布步骤见 [首次发布记录](https://github.com/FasenChen/TV-UITree/blob/main/docs/reports/2026-10-05-v0.1.0-release.md)。
 
 ## 快速开始
 
