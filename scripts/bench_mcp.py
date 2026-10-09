@@ -267,7 +267,7 @@ def main() -> int:
     parser.add_argument("-n", "--count", type=positive_int, default=10, help="每项正式次数，默认 10")
     parser.add_argument("--warmup", type=int, default=1, help="每项预热次数，默认 1，可为 0")
     parser.add_argument("--timeout", type=positive_int, default=120, help="MCP 单次响应超时秒数，默认 120")
-    parser.add_argument("--output", type=Path, help="新的报告目录；默认 _temp/bench_mcp/<时间>")
+    parser.add_argument("--output", type=Path, help="新的报告目录；默认 report/bench_mcp/<时间>")
     args = parser.parse_args()
     if args.warmup < 0:
         parser.error("warmup 不能为负数")
@@ -276,7 +276,7 @@ def main() -> int:
                                      serial=args.serial)
         arguments = ({"serial": options.serial, "adb": options.adb} if options.serial is not None else
                      {"TV_IP_Address": options.TV_IP_Address, "port": options.port, "adb": options.adb})
-        output = (args.output or ROOT / "_temp" / "bench_mcp" / datetime.now().strftime("%Y%m%d_%H%M%S_%f")).resolve()
+        output = (args.output or ROOT / "report" / "bench_mcp" / datetime.now().strftime("%Y%m%d_%H%M%S_%f")).resolve()
         output.mkdir(parents=True, exist_ok=False)
         config_before = (ROOT / "config.json").read_bytes()
     except (ValueError, OSError) as error:

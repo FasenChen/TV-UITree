@@ -22,7 +22,7 @@ $env:PYTHONUTF8 = '1'
 .\.venv\Scripts\python.exe scripts/bench_mcp.py 192.0.2.10 --count 2 --warmup 1
 
 # 每项正式 30 次，输出到一个尚不存在的目录
-.\.venv\Scripts\python.exe scripts/bench_mcp.py 192.0.2.10 --count 30 --warmup 1 --output _temp/bench_mcp/run_30
+.\.venv\Scripts\python.exe scripts/bench_mcp.py 192.0.2.10 --count 30 --warmup 1 --output report/bench_mcp/run_30
 ```
 
 保持电视画面静止，不同时运行其他设备测试或使用遥控器；推荐停在无时钟、无轮播动画的设置页面。脚本不自动切换页面。使用已建立的同一 ADB 目标；各调用仍执行项目正常的连接检查，直接截图也采用相同的连接设置。
@@ -36,7 +36,7 @@ $env:PYTHONUTF8 = '1'
 | `-n` / `--count` | 每项正式调用 10 次，必须为正整数 |
 | `--warmup` | 每项预热 1 次，可设为 0；不进入正式统计 |
 | `--timeout` | MCP 单次响应超时 120 秒，必须为正整数；直接截图沿用现有截图函数的 60 秒超时 |
-| `--output` | 默认 `_temp/bench_mcp/<时间>/`；指定目录必须不存在，避免覆盖旧报告 |
+| `--output` | 默认项目根目录下 `report/bench_mcp/<时间>/`；指定目录必须不存在，避免覆盖旧报告 |
 
 使用已安装的 MCP 1.x、Pillow 和 uiautomator2，不需要安装新依赖。脚本使用 SDK 的公开 `ClientSession`、`StdioServerParameters` 和 `stdio_client`；核对依据为项目实际 MCP 1.30.0 及 [SDK v1 文档](https://github.com/modelcontextprotocol/python-sdk/blob/v1.30.0/README.md)。
 
@@ -84,6 +84,8 @@ MCP 服务只启动一次，启动到 initialize 完成的耗时单列；工具�
 没有的阶段不会显示为伪造的零值。`capture_tree` 内部没有独立埋点的步骤不会被拆出估算时间；原生 MCP 图片的后续封装／序列化可能出现在客户端与服务端总耗时差中。
 
 ## 输出与解读
+
+默认保存位置为项目根目录下的 `report/bench_mcp/<时间>/`，本仓库对应 `D:\Code\tv-uitree\report\bench_mcp\<时间>\`。目录自动创建，每次运行使用独立目录；`report/` 已被 Git 忽略。已有报告保留在原位置。
 
 | 文件 | 内容 |
 |---|---|
