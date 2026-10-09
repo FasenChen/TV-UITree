@@ -74,7 +74,7 @@
 ## 使用指南和其他计划
 
 - [独立截图压测脚本精简](reports/2026-10-09-remove-screencap-bench.md)：删除旧入口，原样迁移参数与统计函数；MCP 压测自检、1203 条主回归和前后 AST 对比通过。
-- [MCP 与直接截图耗时压测](bench-mcp.md)：脚本参数、同场景比较条件、客户端与服务端时间、各阶段、统计和错误处理。
+- [MCP 与直接截图耗时压测](bench-mcp.md)：自动生成图表、README 与离线 HTML，支持已有 report.json 补生成；含脚本参数、同场景条件、时间口径与错误处理。
 - [MCP Inspector 通用使用指南](MCP_Inspector_通用使用指南.md)
 - [MCP 工具耗时计划](superpowers/plans/2026-09-29-mcp-tool-timing.md)
 - [截图压测历史计划](superpowers/plans/2026-09-30-screencap-bench.md)：独立脚本已移除；当前统一使用 [MCP 与直接截图耗时压测](bench-mcp.md)。

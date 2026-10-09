@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT))
 from PIL import Image
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from scripts.bench_report import write_visual_report
 from tvuitree.application.connection import connection_options, connect_device
 from tvuitree.application.observation import collect_observation
 from tvuitree.infrastructure.image import capture
@@ -268,7 +269,38 @@ def main() -> int:
     parser.add_argument("--warmup", type=int, default=1, help="每项预热次数，默认 1，可为 0")
     parser.add_argument("--timeout", type=positive_int, default=120, help="MCP 单次响应超时秒数，默认 120")
     parser.add_argument("--output", type=Path, help="新的报告目录；默认 report/bench_mcp/<时间>")
+    parser.add_argument("--from-report", type=Path, help="从已有 report.json 在原目录补生成 README.md、HTML 和图表，不连接设备")
     args = parser.parse_args()
+    if args.from_report is not None:
+        if args.output is not None:
+            parser.error("--from-report 在原目录生成图文报告，不能同时指定 --output")
+        try:
+            report = json.loads(args.from_report.read_text(encoding="utf-8"))
+            if not isinstance(report, dict) or not isinstance(report.get("samples"), list):
+                raise ValueError("需要 bench_mcp.py 生成的 report.json，且 samples 必须为列表")
+            if not isinstance(report.get("cases"), list) or not report["cases"]:
+                raise ValueError("报告必须包含待测项 cases")
+            if not all(isinstance(report.get(k), str) and report[k] for k in ("started_at", "status")):
+                raise ValueError("报告缺少开始时间或运行状态")
+            if any(type(report[k]) is not int or report[k] < minimum for k, minimum in (("count", 1), ("warmup", 0))):
+                raise ValueError("count 必须为正整数，warmup 必须为非负整数")
+            for sample in report["samples"]:
+                if (type(sample["ok"]) is not bool or type(sample["warmup"]) is not bool
+                        or type(sample["round"]) is not int or sample["round"] < 1):
+                    raise ValueError("样本的状态与轮次不合法")
+                durations = [sample["client_ms"]]
+                if sample["ok"]:
+                    durations += [sample["server_ms"], *sample["stages_ms"].values()]
+                if any(type(v) not in (int, float) or not math.isfinite(v) or v < 0 for v in durations):
+                    raise ValueError("样本耗时必须为有限的非负数")
+            report["summary"] = summarize_samples(report["samples"], [case["case"] for case in report["cases"]])
+            write_visual_report(report, args.from_report.resolve().parent)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+            print(f"图文报告生成失败：{error}", file=sys.stderr)
+            return 2
+        print(f"图文报告：{args.from_report.resolve().parent / 'README.md'}")
+        print(f"离线 HTML：{args.from_report.resolve().parent / 'report.html'}")
+        return 0
     if args.warmup < 0:
         parser.error("warmup 不能为负数")
     try:
@@ -309,9 +341,12 @@ def main() -> int:
             report["exit_code"] = exit_code
             (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
             (output / "report.txt").write_text(format_report(report), encoding="utf-8")
+            write_visual_report(report, output)
             print(f"报告：{output / 'report.txt'}")
+            print(f"图文报告：{output / 'README.md'}")
+            print(f"离线 HTML：{output / 'report.html'}")
         except OSError as error:
-            print(f"报告写入失败：{error}；已有逐次数据见 {output}", file=sys.stderr)
+            print(f"报告写入失败：{error}；已写文件与逐次数据见 {output}", file=sys.stderr)
             exit_code = 2
     return exit_code
 

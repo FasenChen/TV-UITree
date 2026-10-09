@@ -1,6 +1,6 @@
 # MCP 与直接截图耗时压测
 
-`scripts/bench_mcp.py` 在同一台 TV、同一画面下，串行比较实际 stdio MCP 调用和直接取回 PNG 的耗时。每次调用记录客户端完整耗时、现有服务端日志总耗时及各阶段耗时，并输出 UTF-8 TXT 报告、JSON 汇总、JSONL 逐次记录和原始 stderr。
+`scripts/bench_mcp.py` 在同一台 TV、同一画面下，串行比较实际 stdio MCP 调用和直接取回 PNG 的耗时。每次调用记录客户端完整耗时、现有服务端日志总耗时及各阶段耗时，自动生成带图表的 `README.md` 与离线 `report.html`，同时保留 UTF-8 TXT 报告、JSON 汇总、JSONL 逐次记录和原始 stderr。
 
 当前统一使用此脚本压测。参数校验与最近秩统计已集中到 `bench_mcp.py`，不再依赖已移除的独立截图压测脚本；直接截图及其单独的 screenshot 阶段统计继续保留。
 
@@ -37,6 +37,7 @@ $env:PYTHONUTF8 = '1'
 | `--warmup` | 每项预热 1 次，可设为 0；不进入正式统计 |
 | `--timeout` | MCP 单次响应超时 120 秒，必须为正整数；直接截图沿用现有截图函数的 60 秒超时 |
 | `--output` | 默认项目根目录下 `report/bench_mcp/<时间>/`；指定目录必须不存在，避免覆盖旧报告 |
+| `--from-report` | 从已有 `report.json` 在原目录生成或更新 README、HTML 和图表；不连接设备，不改原始文件，不能与 `--output` 同用 |
 
 使用已安装的 MCP 1.x、Pillow 和 uiautomator2，不需要安装新依赖。脚本使用 SDK 的公开 `ClientSession`、`StdioServerParameters` 和 `stdio_client`；核对依据为项目实际 MCP 1.30.0 及 [SDK v1 文档](https://github.com/modelcontextprotocol/python-sdk/blob/v1.30.0/README.md)。
 
@@ -89,12 +90,25 @@ MCP 服务只启动一次，启动到 initialize 完成的耗时单列；工具�
 
 | 文件 | 内容 |
 |---|---|
+| `README.md` | 图文概览、客户端耗时、阶段平均耗时及占比、双源逐轮变化、可展开的精确表格与结果边界 |
+| `report.html` | 同一份图文报告，图表内嵌；浏览器可单独离线打开，不依赖外部网络资源 |
+| `assets/*.svg` | README 引用的矢量图，数字可放大查看；复制 README 时一并复制 assets 目录 |
 | `report.txt` | 汇总、每项总耗时统计、每个阶段统计、同轮直接截图差值／倍数、全部逐次记录 |
 | `report.json` | 运行设置、环境版本、各项实际参数、启动时间、前后场景指纹、配置是否改动、逐次样本和汇总 |
 | `samples.jsonl` | 每次完成调用即追加并 flush；包括预热、失败、阶段及原始日志字节偏移 |
 | `stderr.log` | SDK／服务日志与直接截图的原始计时块；MCP stdout 仍只用于协议 |
 
-每项给出正式样本的成功率、成功与失败数，以及成功样本的 min、mean、p50、p90、p99、max。分位数复用现有截图压测脚本的最近秩法；10 个样本的 p99 通常等于最大值，不能当作稳定的尾部延迟估计。
+已有压测数据可以补生成图文报告，不重新压测：
+
+```powershell
+.\.venv\Scripts\python.exe scripts/bench_mcp.py --from-report report/bench_mcp/<运行目录>/report.json
+```
+
+补生成会从原始 samples 重新计算汇总，更新同目录的 `README.md`、`report.html` 和三个 SVG 图表；原有 JSON、TXT、JSONL 和日志保持不变。图文报告只展示统计与连接方式，不展示设备序列号、网络地址、完整焦点文字或 ADB 路径。原始文件仍可能含这些信息，分享前请检查。
+
+耗时统计只包含成功正式样本；空样本显示“—”，未完成调用不计入已完成调用成功率的分母。p50 是中位数，p90 表示 90% 成功样本不超过该耗时。阶段图给出平均毫秒值及其占客户端均值的百分比；“响应 / 其他”保留未分段计时和客户端响应差额，极小负值可能来自日志舍入。逐轮图只展示双源完整树和屏幕摘要的成功正式样本，失败或缺失轮次留空。脚本不自动上传 GitHub Wiki。
+
+每项给出正式样本的成功率、成功与失败数，以及成功样本的 min、mean、p50、p90、p99、max。分位数使用脚本内的最近秩法；10 个样本的 p99 通常等于最大值，不能当作稳定的尾部延迟估计。
 
 比较使用同一正式轮次中两项均成功的样本。平均差是这些样本中 `工具 client_ms - 直接截图 client_ms` 的平均值；倍数是这些配对样本的两组均值之比。直接截图该轮失败时，不用别轮替代。汇总 `extra_ms` 由每个成功样本先做差再统计。
 
@@ -109,8 +123,8 @@ Ctrl+C 会保留已经完成的样本并尝试写出报告，stdio 上下文负�
 ```powershell
 .\.venv\Scripts\python.exe tests/selftest_bench_mcp.py
 .\.venv\Scripts\python.exe scripts/bench_mcp.py --help
-.\.venv\Scripts\python.exe -m py_compile scripts/bench_mcp.py tests/selftest_bench_mcp.py
-.\.venv\Scripts\python.exe -m pyflakes scripts/bench_mcp.py tests/selftest_bench_mcp.py
+.\.venv\Scripts\python.exe -m py_compile scripts/bench_mcp.py scripts/bench_report.py tests/selftest_bench_mcp.py
+.\.venv\Scripts\python.exe -m pyflakes scripts/bench_mcp.py scripts/bench_report.py tests/selftest_bench_mcp.py
 ```
 
 专用离线自检不连接 TV，覆盖 LF／CRLF、日志唯一归属、损坏阶段、失败阶段、预热与失败排除、同轮比较、空样本、MCP 业务错误及未确认场景时的报告提示。
