@@ -232,6 +232,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="同场景比较 MCP 工具与直接截图，记录现有分阶段日志。")
     parser.add_argument("address", nargs="?", help="TV IP/主机名；不填读取 config.json，不含端口")
     parser.add_argument("--port", type=positive_int, help="ADB 端口；不填读取配置")
+    parser.add_argument("--serial", help="USB 设备序列号；不能与网络地址或端口同时指定")
     parser.add_argument("--adb", help="ADB 路径；不填读取配置")
     parser.add_argument("-n", "--count", type=positive_int, default=10, help="每项正式次数，默认 10")
     parser.add_argument("--warmup", type=int, default=1, help="每项预热次数，默认 1，可为 0")
@@ -241,8 +242,10 @@ def main() -> int:
     if args.warmup < 0:
         parser.error("warmup 不能为负数")
     try:
-        options = connection_options(TV_IP_Address=args.address, port=args.port, adb=args.adb)
-        arguments = {"TV_IP_Address": options.TV_IP_Address, "port": options.port, "adb": options.adb}
+        options = connection_options(TV_IP_Address=args.address, port=args.port, adb=args.adb,
+                                     serial=args.serial)
+        arguments = ({"serial": options.serial, "adb": options.adb} if options.serial is not None else
+                     {"TV_IP_Address": options.TV_IP_Address, "port": options.port, "adb": options.adb})
         output = (args.output or ROOT / "_temp" / "bench_mcp" / datetime.now().strftime("%Y%m%d_%H%M%S_%f")).resolve()
         output.mkdir(parents=True, exist_ok=False)
         config_before = (ROOT / "config.json").read_bytes()

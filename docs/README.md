@@ -2,6 +2,13 @@
 
 项目使用说明见 [根目录 README](../README.md)，编码与交付约定见 [AGENTS.md](../AGENTS.md)。长期维护的说明、计划、审查与交付报告统一存放在 `docs/`。
 
+## USB 有线 ADB
+
+- [实施计划](superpowers/plans/2026-10-09-usb-adb.md)：CLI、MCP、默认配置及压测入口的序列号支持。
+- [Ponytail 计划审核](reviews/2026-10-09-usb-adb-plan-review.md)：审核通过，已允许实施；USB 真机验收仍取决于设备可用性。
+- [Ponytail 代码终审](reviews/2026-10-09-usb-adb-code-review.md)：发现 1 项 NUL 输入边界；已补修并由回归证据关闭，详见交付报告。
+- [交付与验证报告](reports/2026-10-09-usb-adb-delivery.md)：最终 1255 条离线断言、USB-only 配置及真实 stdio MCP 验证；当前无 USB 真机可用。
+
 ## 最新真机验收
 
 - [MCP 与直接截图可视化报告（HTML）](reports/2026-10-08-mcp-benchmark.html)：本轮静态页实测结果，支持平均值／p50／p90 切换、阶段拆解、逐次样本、数据下载和打印；离线单文件。

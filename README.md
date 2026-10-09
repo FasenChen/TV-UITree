@@ -35,6 +35,34 @@ python main.py observe --out observe.json
 
 连接时直接使用配置文件；临时切换电视可传入 `--TV_IP_Address 192.168.1.148 --port 5555`。显式参数优先于配置文件；只传其中一个时，另一个仍从配置文件读取。`TV_IP_Address` 只填 IP 或主机名，不包含端口。`adb` 设置本机 ADB 可执行文件路径；命令行或 MCP 显式传入 `adb` 时优先。配置文件缺失或值无效时会明确报错。
 
+### 使用 USB 有线 ADB
+
+电视需要开启 USB 调试，并通过支持调试的 USB 接口及数据线连接电脑；电脑需要相应驱动，电视上需要允许本电脑调试。先执行 `adb devices`，复制状态为 `device` 的设备序列号。若 ADB 不在 PATH 中，用 `config.json` 的 `adb` 路径执行该命令。`offline`、`unauthorized` 或未列出的设备不能使用。步骤依据 [Android 官方 ADB 文档](https://developer.android.com/tools/adb)。
+
+```powershell
+adb devices
+python main.py observe --serial USB_SERIAL
+python main.py visible --serial USB_SERIAL
+python main.py tree --serial USB_SERIAL --out _temp/usb-full.json
+python main.py shot --serial USB_SERIAL --json _temp/usb-full.json --out _temp/usb-shot.png
+python main.py input DOWN --serial USB_SERIAL
+```
+
+将 `USB_SERIAL` 替换为完整序列号；`input` 会实际发送按键。USB 按序列号直接访问设备，不执行网络 `adb connect`，不要求 TV IP 和 TCP 端口。多台设备同时连接时仍只操作指定序列号，目标不可用时不会选用其他在线设备。现有 uiautomator2 采集服务复用同一序列号，符合 [uiautomator2 连接 API](https://github.com/openatx/uiautomator2#connecting-to-device)。
+
+默认使用 USB 时，`config.json` 可以设置为：
+
+```json
+{
+  "serial": "USB_SERIAL",
+  "adb": "adb"
+}
+```
+
+也可以只在已有网络配置中添加 `serial`，保留 IP/port 供切换使用。serial 必须为非空字符串，不含空白、控制字符或冒号；字段缺失或为 `null` 时使用网络配置，空字符串会报错。
+
+目标选择规则：显式 `--serial` 覆盖网络默认值；显式 `--TV_IP_Address` 或 `--port` 覆盖已保存的 USB 默认值，未指定的网络字段仍从配置读取。同一次调用不能同时传 `--serial` 与 IP/port。没有显式目标时优先配置 serial，否则使用 IP/port。USB-only 配置切换到网络时，需要提供完整的 IP 和端口。`--no-connect` 只控制网络连接命令，不能将网络目标改选 USB。USB 断线时按现有错误处理返回失败，重新插线并授权后可再次调用。
+
 如果手头已有本工具产生的全量 JSON，可以不连接 TV：
 
 ```powershell
@@ -104,12 +132,12 @@ python main.py observe --from-json full.json --out observe.json
 
 | 工具 | 返回内容 | 常用参数 |
 |---|---|---|
-| `observe_tv` | 焦点、页面摘要和判断证据 | `TV_IP_Address`、`port`、`no_dumpsys`、`max_nodes` |
-| `get_full_tree` | 当次采集的完整控件树 | `TV_IP_Address`、`port`、`no_dumpsys` |
-| `get_visible` | 当前屏幕的控件摘要、焦点及操作属性 | `TV_IP_Address`、`port`、`no_connect` |
-| `get_current_focus` | 精简的焦点状态和焦点节点信息 | `TV_IP_Address`、`port` |
-| `get_focus_screenshot` | 返回截图结果、本地 PNG 路径和可直接显示的图片 | `TV_IP_Address`、`port` |
-| `set_default_device` | 修改 `config.json` 的默认设备，返回切换前后的目标 | `TV_IP_Address`（必填）、`port` |
+| `observe_tv` | 焦点、页面摘要和判断证据 | `serial` 或 `TV_IP_Address`、`port`；`no_dumpsys`、`max_nodes` |
+| `get_full_tree` | 当次采集的完整控件树 | `serial` 或 `TV_IP_Address`、`port`；`no_dumpsys` |
+| `get_visible` | 当前屏幕的控件摘要、焦点及操作属性 | `serial` 或 `TV_IP_Address`、`port`；`no_connect` |
+| `get_current_focus` | 精简的焦点状态和焦点节点信息 | `serial` 或 `TV_IP_Address`、`port` |
+| `get_focus_screenshot` | 返回截图结果、本地 PNG 路径和可直接显示的图片 | `serial` 或 `TV_IP_Address`、`port` |
+| `set_default_device` | 修改 `config.json` 的默认设备，返回切换前后的目标 | `serial` 或 `TV_IP_Address`（二选一）；网络可带 `port` |
 
 ### MCP 工具参数
 
@@ -118,6 +146,7 @@ python main.py observe --from-json full.json --out observe.json
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `TV_IP_Address` | string 或 null | `null` | 电视的 IP 或主机名；省略时读取 `config.json` 的同名字段，不包含端口。 |
+| `serial` | string 或 null | `null` | USB 设备序列号；不能与显式 IP/port 同时指定。目标选择优先级与 CLI 相同。 |
 | `port` | integer 或 null | `null` | ADB TCP 端口；省略时读取 `config.json` 的 `port`，有效范围 1–65535。 |
 | `adb` | string 或 null | `null` | 运行 MCP 服务的电脑上的 ADB 可执行文件路径；省略时读取 `config.json` 的 `adb`。显式传入时覆盖配置。 |
 
@@ -130,7 +159,9 @@ python main.py observe --from-json full.json --out observe.json
 
 `get_current_focus` 和 `get_focus_screenshot` 按默认配置连接 TV，只读取焦点所需的 a11y 树，不提供这两个诊断参数。需要双源诊断时使用 `observe_tv` 或 `get_full_tree`。
 
-`set_default_device` 把 `TV_IP_Address` 写进 `config.json`；传入 `port` 时一并修改，省略时保留原端口，`adb` 等其他字段不变。校验规则与连接参数相同，非法值不会写入。写入是原子的，失败时原文件保持不变。配置在每次连接时重新读取，切换后无需重启 MCP 服务。工具只改配置、不执行 `adb connect`；成功返回 `previous`、`current` 和 `config_path`，失败返回 `error` 与 `error_type`。`config.json` 受 git 跟踪，切换后不要把本机设备地址提交进仓库。
+USB 的五个读取工具调用参数均可为 `{"serial": "USB_SERIAL"}`。`set_default_device` 必须传入 serial 或 TV_IP_Address 二选一：`{"serial": "USB_SERIAL"}` 保存默认 USB 序列号，保留旧网络字段；`{"TV_IP_Address": "192.0.2.10", "port": 5555}` 切回网络并删除 serial，省略 port 时保留配置原端口。不能单独传 port。adb 等其他配置不变；非法目标或写入失败不修改原文件，保存仍为原子操作。配置每次连接时重新读取，切换无需重启 MCP；新增 serial 参数的 schema 需要客户端重新发现工具。
+
+工具只改配置、不连接设备；成功返回 previous、current 和 config_path，失败返回 error 与 error_type。previous/current 的网络目标仍为 `{"TV_IP_Address": "192.0.2.10", "port": 5555}`，USB 目标为 `{"serial": "USB_SERIAL"}`。`config.json` 受 git 跟踪，不要提交本机设备地址、序列号或私有设置。
 
 `get_visible` 与 `python main.py visible` 共用同一观察服务，只采集 a11y，输出 `tv-visible/v1`。结构类似 `observe_tv`：`focus.status` 给出焦点状态，找到唯一焦点时 `focus.path` 指向 `page.nodes` 中的节点；`page.nodes` 包含屏幕内有内容或焦点的控件摘要，提供标签、原始树路径、屏幕坐标及可用操作。同一可操作行的标题和值合并为一个节点；无内容的布局容器不返回。无显示文字的可操作图标若有 `content_desc`，会以 `accessibility_labels` 标出，避免把无障碍描述误认为屏幕文字。只依据 a11y 的 `bounds_screen` 读数、可见属性及屏幕交集判断，保留部分进入屏幕的节点；dumpsys 派生坐标不作为当前可见的证明。省略号摘要与完整文本同时出现时，只保留完整文本。输出不包含完整树、R0–R3 诊断统计或截图 OCR，因此不能证明像素遮挡。无显示文字但有 `clickable`、`long_clickable` 或 `checkable` 明确读数的控件，也会保留已有资源 ID、坐标和操作信息；开关的 `checked=false` 是未选状态，`enabled=false` 是明确的禁用读数。缺失状态保持未知，不补成 false，也不编造文字标签。连接或采集失败时返回 `mode=visible` 与 `error`，异常时另含 `error_type`。
 

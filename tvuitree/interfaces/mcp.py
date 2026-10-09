@@ -58,9 +58,9 @@ def _save_focus_screenshot(png: bytes) -> str:
 
 
 def _connect(*, TV_IP_Address: Optional[str], port: Optional[int],
-             adb: Optional[str], no_connect: bool):
+             adb: Optional[str], no_connect: bool, serial: Optional[str] = None):
     options = connection_options(
-        TV_IP_Address=TV_IP_Address, port=port, adb=adb, no_connect=no_connect,
+        TV_IP_Address=TV_IP_Address, port=port, adb=adb, no_connect=no_connect, serial=serial,
     )
     return connect_device(options, quiet=True), options.target
 
@@ -164,13 +164,14 @@ def get_current_focus(
     TV_IP_Address: Optional[str] = None,
     port: Optional[int] = None,
     adb: Optional[str] = None,
+    serial: Optional[str] = None,
 ) -> dict:
     """返回精简的当前焦点节点信息，不返回祖先、同级节点或子节点。"""
     with tool_timing("get_current_focus") as timer:
         try:
             with timer.stage("connect"):
                 device, target = _connect(
-                    TV_IP_Address=TV_IP_Address, port=port, adb=adb,
+                    TV_IP_Address=TV_IP_Address, port=port, adb=adb, serial=serial,
                     no_connect=False,
                 )
             if device is None:
@@ -192,6 +193,7 @@ def get_focus_screenshot(
     TV_IP_Address: Optional[str] = None,
     port: Optional[int] = None,
     adb: Optional[str] = None,
+    serial: Optional[str] = None,
 ) -> list:
     """返回截图结果和 PNG；唯一 a11y 焦点用加粗红框标出。"""
     with tool_timing("get_focus_screenshot") as timer:
@@ -205,7 +207,7 @@ def get_focus_screenshot(
         try:
             with timer.stage("connect"):
                 device, target = _connect(
-                    TV_IP_Address=TV_IP_Address, port=port, adb=adb,
+                    TV_IP_Address=TV_IP_Address, port=port, adb=adb, serial=serial,
                     no_connect=False,
                 )
         except Exception as exc:
@@ -271,13 +273,14 @@ def observe_tv(
     no_connect: bool = False,
     no_dumpsys: bool = False,
     max_nodes: int = DEFAULT_MAX_NODES,
+    serial: Optional[str] = None,
 ) -> dict:
     """读取当前 TV 焦点、精简页面节点和 R0–R3 证据。"""
     with tool_timing("observe_tv") as timer:
         try:
             with timer.stage("connect"):
                 device, target = _connect(
-                    TV_IP_Address=TV_IP_Address, port=port, adb=adb,
+                    TV_IP_Address=TV_IP_Address, port=port, adb=adb, serial=serial,
                     no_connect=no_connect,
                 )
             if device is None:
@@ -301,13 +304,14 @@ def get_full_tree(
     adb: Optional[str] = None,
     no_connect: bool = False,
     no_dumpsys: bool = False,
+    serial: Optional[str] = None,
 ) -> dict:
     """读取当前 TV 的完整控件树；需要详细诊断时使用。"""
     with tool_timing("get_full_tree") as timer:
         try:
             with timer.stage("connect"):
                 device, _target = _connect(
-                    TV_IP_Address=TV_IP_Address, port=port, adb=adb,
+                    TV_IP_Address=TV_IP_Address, port=port, adb=adb, serial=serial,
                     no_connect=no_connect,
                 )
             if device is None:
@@ -329,13 +333,14 @@ def get_visible(
     port: Optional[int] = None,
     adb: Optional[str] = None,
     no_connect: bool = False,
+    serial: Optional[str] = None,
 ) -> dict:
     """读取当前屏幕内的控件摘要和焦点，排除屏外节点与空布局。"""
     with tool_timing("get_visible") as timer:
         try:
             with timer.stage("connect"):
                 device, _target = _connect(
-                    TV_IP_Address=TV_IP_Address, port=port, adb=adb,
+                    TV_IP_Address=TV_IP_Address, port=port, adb=adb, serial=serial,
                     no_connect=no_connect,
                 )
             if device is None:
@@ -355,13 +360,14 @@ def get_visible(
 @mcp.tool()
 def set_default_device(
     # strict：参数会写入配置，不能让 pydantic 把 true、"5556" 或 5557.0 宽松转换成端口
-    TV_IP_Address: Annotated[str, Field(strict=True)],
+    TV_IP_Address: Annotated[Optional[str], Field(strict=True)] = None,
     port: Annotated[Optional[int], Field(strict=True)] = None,
+    serial: Annotated[Optional[str], Field(strict=True)] = None,
 ) -> dict:
-    """修改 config.json 的默认 TV 地址（可选端口）；之后不传地址的调用都连新设备。只写配置，不连接设备。"""
+    """保存默认网络地址或 USB 序列号（二选一）；只写配置，不连接设备。"""
     with tool_timing("set_default_device") as timer:
         try:
             with timer.stage("save"):
-                return update_default_device(TV_IP_Address=TV_IP_Address, port=port)
+                return update_default_device(TV_IP_Address=TV_IP_Address, port=port, serial=serial)
         except Exception as exc:
             return {"error": str(exc), "error_type": type(exc).__name__}

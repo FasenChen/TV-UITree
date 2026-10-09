@@ -60,7 +60,7 @@ sys.path.insert(0, HERE)
 from tvuitree.domain import component, observation as domain_observation, screenshot, visible as domain_visible
 from tvuitree.domain.tree import models, parsing, matching, capture, output as tree_output, pruning
 from tvuitree.application import input as remote_input, observation as application_observation
-from tvuitree.infrastructure import adb, image
+from tvuitree.infrastructure import adb, image, device_config
 from tvuitree.interfaces import (cli, connection, terminal, timing, json_io,
                                 observe as observe_interface,
                                 tree as tree_interface, visible as visible_interface)
@@ -317,13 +317,13 @@ with open(FULL_PATH, "w", encoding="utf-8") as _f:
 
 t.group("0. 统一入口的设备参数与连接选项")
 
-for name in ("observe", "tree", "input", "shot"):
+for name in ("observe", "tree", "visible", "input", "shot"):
     command_parser = cli.build_parser()._subparsers._group_actions[0].choices[name]
     help_text = command_parser.format_help()
-    for opt in ("--TV_IP_Address", "--port", "--adb", "--no-connect",
+    for opt in ("--TV_IP_Address", "--port", "--serial", "--adb", "--no-connect",
                 "--no-color", "--quiet"):
         t.ok(opt in help_text, f"{name} 要有公共设备参数 {opt}")
-    for removed in ("--host", "--serial", "--address"):
+    for removed in ("--host", "--address"):
         t.ok(removed not in help_text, f"{name} 不再提供 {removed}")
 t.eq(adb.resolve_adb("X:/adb.exe"), "X:/adb.exe", "显式指定的 adb 路径优先（不查文件系统）")
 t.eq(component.normalize_component("com.demo/.MainActivity"),
@@ -339,23 +339,23 @@ t.eq(component.component_from_activity_record(
 t.eq(component.component_from_window(
     "  mFocusedWindow=Window{abc u0 com.demo/.MainActivity}"),
     "com.demo/.MainActivity", "从 window dump 取 component")
-with open(os.path.join(os.path.dirname(__file__), "..", "config.json"), encoding="utf-8") as _f:
-    _device_config = json.load(_f)
+_device_config = device_config.load_device_config()
 t.eq(connection.options_from_args(
     cli.build_parser().parse_args(["input"])
-).target, f"{_device_config['TV_IP_Address']}:{_device_config['port']}",
+).target, _device_config.get("serial") or f"{_device_config['TV_IP_Address']}:{_device_config['port']}",
      "设备默认目标由 config.json 读取")
 t.eq(connection.options_from_args(cli.build_parser().parse_args(["input"])).adb,
-     _device_config["adb"], "ADB 默认路径由 config.json 读取")
+     _device_config.get("adb"), "ADB 默认路径由 config.json 读取")
 t.eq(connection.options_from_args(cli.build_parser().parse_args(
     ["input", "--adb", "X:/adb.exe"]
 )).adb, "X:/adb.exe", "显式 ADB 路径覆盖配置")
-t.eq(connection.options_from_args(
-    cli.build_parser().parse_args(["input", "--TV_IP_Address", "1.2.3.4"])
-).target, f"1.2.3.4:{_device_config['port']}", "显式 IP 覆盖配置，端口沿用配置")
-t.eq(connection.options_from_args(
-    cli.build_parser().parse_args(["input", "--port", "1234"])
-).target, f"{_device_config['TV_IP_Address']}:1234", "显式端口覆盖配置，IP 沿用配置")
+with patch.object(device_config, "load_device_config", return_value={"TV_IP_Address": "192.0.2.1", "port": 5555}):
+    t.eq(connection.options_from_args(
+        cli.build_parser().parse_args(["input", "--TV_IP_Address", "1.2.3.4"])
+    ).target, "1.2.3.4:5555", "显式 IP 覆盖配置，端口沿用配置")
+    t.eq(connection.options_from_args(
+        cli.build_parser().parse_args(["input", "--port", "1234"])
+    ).target, "192.0.2.1:1234", "显式端口覆盖配置，IP 沿用配置")
 _CN = ("R", "B", "DIM", "RED", "GRN", "YEL", "BLU", "MAG", "CYA", "GRY")
 _saved = {k: getattr(terminal.C, k) for k in _CN}
 _saved_on = terminal.C._on
@@ -1350,14 +1350,14 @@ try:
         tool.name: tool.inputSchema for tool in asyncio.run(mcp_interface.mcp.list_tools())
     }
     for name in ("get_current_focus", "get_focus_screenshot"):
-        t.eq(set(mcp_schemas[name]["properties"]), {"TV_IP_Address", "port", "adb"},
+        t.eq(set(mcp_schemas[name]["properties"]), {"TV_IP_Address", "port", "adb", "serial"},
              f"{name} 只公开设备连接参数")
-    t.eq(set(mcp_schemas["set_default_device"]["properties"]), {"TV_IP_Address", "port"},
-         "set_default_device 只公开地址和端口")
-    t.eq(mcp_schemas["set_default_device"].get("required"), ["TV_IP_Address"],
-         "set_default_device 必须给出地址")
+    t.eq(set(mcp_schemas["set_default_device"]["properties"]), {"TV_IP_Address", "port", "serial"},
+         "set_default_device 公开网络地址或 USB 序列号")
+    t.eq(mcp_schemas["set_default_device"].get("required", []), [],
+         "set_default_device 在共享服务中校验目标二选一")
     t.eq(set(mcp_schemas["get_visible"]["properties"]),
-         {"TV_IP_Address", "port", "adb", "no_connect"},
+         {"TV_IP_Address", "port", "adb", "no_connect", "serial"},
          "get_visible 只公开设备连接参数，不采集无关的 dumpsys")
 
     if has_pil:
@@ -1505,7 +1505,8 @@ try:
     with open(os.path.join(TD, "offline_visible.json"), encoding="utf-8") as source:
         offline_visible = json.load(source)
     t.eq(offline_visible_rc, 0, "离线可视树退出码")
-    t.eq(offline_visible, cli_visible, "离线与实时可视筛选使用同一逻辑")
+    t.eq(_without_capture_time(offline_visible), _without_capture_time(cli_visible),
+         "离线与实时可视筛选使用同一逻辑")
 
     sample = {"mode": "full", "screen": {"width": 100, "height": 80}, "tree": [
         {"source": "a11y", "class": "root", "bounds_screen": None, "children": [
@@ -1981,7 +1982,6 @@ t.eq(_gbk_code, 1, "GBK 控制台打印不可编码字符时不崩溃")
 
 t.group("11. 默认设备配置写入与切换")
 
-from tvuitree.infrastructure import device_config
 from tvuitree.application import connection as app_connection
 
 _original_config_path = device_config.CONFIG_PATH
@@ -3172,6 +3172,199 @@ if cleanup_io_error is None:
 
 
 # ================================================================== 收尾
+
+t.group("37. USB ADB 目标选择、默认配置与接口透传")
+usb_network_config = {"TV_IP_Address": "192.0.2.1", "port": 5555, "adb": "adb"}
+usb_config = {**usb_network_config, "serial": "USB_FIXTURE"}
+for config, kwargs, expected in [
+    (usb_network_config, {"serial": "USB_FIXTURE"}, "USB_FIXTURE"),
+    (usb_config, {}, "USB_FIXTURE"),
+    ({"serial": "USB_FIXTURE", "adb": "adb"}, {}, "USB_FIXTURE"),
+    (usb_config, {"TV_IP_Address": "192.0.2.2"}, "192.0.2.2:5555"),
+    (usb_config, {"port": 5556}, "192.0.2.1:5556"),
+    ({**usb_network_config, "serial": None}, {}, "192.0.2.1:5555"),
+]:
+    with patch.object(device_config, "load_device_config", return_value=config):
+        try:
+            actual = app_connection.connection_options(**kwargs).target
+        except Exception as error:
+            actual = f"{type(error).__name__}: {error}"
+        t.eq(actual, expected, f"USB/网络优先级 {kwargs}")
+
+for kwargs in [{"serial": value} for value in ("", " ", "USB FIXTURE", " USB", "USB\n", "USB\0", "USB\x07", 123, True, "192.0.2.1:5555")] + [
+    {"serial": "USB_FIXTURE", "TV_IP_Address": "192.0.2.1"},
+    {"serial": "USB_FIXTURE", "port": 5555},
+]:
+    with patch.object(device_config, "load_device_config", return_value=usb_network_config):
+        try:
+            app_connection.connection_options(**kwargs)
+            rejected = False
+        except Exception as error:
+            rejected = isinstance(error, ValueError)
+        t.ok(rejected, f"非法或混用目标拒绝 {kwargs}")
+with patch.object(device_config, "load_device_config", return_value={**usb_config, "serial": ""}):
+    try:
+        app_connection.connection_options()
+        usb_bad_default = False
+    except ValueError:
+        usb_bad_default = True
+    t.ok(usb_bad_default, "配置中的空 USB serial 不能回退网络")
+
+usb_config_path = Path(TD) / "usb-config.json"
+usb_config_path.write_text(json.dumps(usb_network_config), encoding="utf-8")
+with patch.object(device_config, "CONFIG_PATH", usb_config_path):
+    try:
+        usb_saved = app_connection.update_default_device(serial="USB_FIXTURE")
+    except Exception as error:
+        usb_saved = {"error": type(error).__name__}
+    t.eq(usb_saved.get("current"), {"serial": "USB_FIXTURE"}, "保存 USB 默认目标")
+    if usb_saved.get("current"):
+        t.eq(usb_saved["previous"], {"TV_IP_Address": "192.0.2.1", "port": 5555}, "切换前网络目标")
+        t.eq(json.loads(usb_config_path.read_text()), usb_config, "保留网络配置及 ADB 路径")
+        usb_switched = app_connection.update_default_device(TV_IP_Address="192.0.2.2")
+        t.eq(usb_switched["previous"], {"serial": "USB_FIXTURE"}, "切换前 USB 目标")
+        t.eq(usb_switched["current"], {"TV_IP_Address": "192.0.2.2", "port": 5555}, "切回网络保留端口")
+        t.ok("serial" not in json.loads(usb_config_path.read_text()), "切回网络移除默认 serial")
+    for kwargs in ({}, {"port": 5555}, {"serial": ""}, {"serial": 123},
+                   {"serial": "USB\0"}, {"serial": "USB\x07"},
+                   {"serial": "USB_FIXTURE", "port": 5555},
+                   {"serial": "USB_FIXTURE", "TV_IP_Address": "192.0.2.1"}):
+        before = usb_config_path.read_bytes()
+        try:
+            app_connection.update_default_device(**kwargs)
+            rejected = False
+        except Exception as error:
+            rejected = isinstance(error, ValueError)
+        t.ok(rejected, f"保存目标拒绝无效输入 {kwargs}")
+        t.eq(usb_config_path.read_bytes(), before, "拒绝保存时配置字节不变")
+    before = usb_config_path.read_bytes()
+    with patch.object(device_config.os, "replace", side_effect=PermissionError("fixture locked")):
+        try:
+            app_connection.update_default_device(serial="USB_FIXTURE")
+            usb_atomic_error = False
+        except Exception as error:
+            usb_atomic_error = isinstance(error, ValueError)
+    t.ok(usb_atomic_error, "USB 原子替换失败返回配置错误")
+    t.eq(usb_config_path.read_bytes(), before, "USB 保存失败保留配置字节")
+    for args in ({"serial": 123}, {"serial": True}, {"serial": "USB_FIXTURE", "port": 5555}):
+        try:
+            asyncio.run(mcp_interface.mcp.call_tool("set_default_device", args))
+        except Exception:
+            pass
+        t.eq(usb_config_path.read_bytes(), before, "MCP strict/目标校验失败不能修改配置")
+    with patch.object(timing, "LOG_STREAM", io.StringIO()):
+        asyncio.run(mcp_interface.mcp.call_tool("set_default_device", {"serial": "USB_MCP"}))
+        t.eq(app_connection.connection_options().target, "USB_MCP", "真实 MCP 协议可保存 USB 默认值")
+        asyncio.run(mcp_interface.mcp.call_tool("set_default_device", {"TV_IP_Address": "192.0.2.3"}))
+        t.eq(app_connection.connection_options().target, "192.0.2.3:5555", "真实 MCP 协议可切回网络")
+        t.eq(json.loads(usb_config_path.read_text())["adb"], "adb", "MCP 切换始终保留 ADB 设置")
+
+with patch.object(device_config, "load_device_config", return_value=usb_network_config), \
+     patch.object(adb.subprocess, "run", return_value=subprocess.CompletedProcess(
+         [], 0, b"List of devices attached\nUSB_FIXTURE\tdevice\n", b"")) as usb_shared_process:
+    usb_connected = app_connection.connect_device(
+        app_connection.connection_options(serial="USB_FIXTURE"), quiet=True)
+    t.eq(usb_connected.serial if usb_connected else None, "USB_FIXTURE", "共享连接服务真正创建 USB Adb")
+    t.eq(usb_shared_process.call_args.args[0], ["adb", "-s", "USB_FIXTURE", "devices"], "共享连接不拼接 TCP 端口")
+
+for state in ("device", "offline", "unauthorized", None):
+    listing = "List of devices attached\nOTHER_USB\tdevice\n192.0.2.1:5555\tdevice\n"
+    if state:
+        listing += f"USB_FIXTURE\t{state}\n"
+    completed = subprocess.CompletedProcess([], 0, listing.encode(), b"")
+    with patch.object(adb.subprocess, "run", return_value=completed) as process:
+        device = adb.Adb("adb", "USB_FIXTURE")
+        t.eq(device.connect(quiet=True), state == "device", "仅选中指定在线 USB 设备")
+        t.eq(device.serial, "USB_FIXTURE", "目标不可用时不回退其他在线设备")
+        t.eq([call.args[0] for call in process.call_args_list],
+             [["adb", "-s", "USB_FIXTURE", "devices"]], "USB 检查不调用网络 connect")
+        if state == "device":
+            device.shell_raw("getprop ro.product.model")
+            t.eq(process.call_args.args[0][:3], ["adb", "-s", "USB_FIXTURE"], "USB 命令固定同一 serial")
+
+usb_device = SimpleNamespace(serial="USB_FIXTURE")
+with patch.object(device_config, "load_device_config", return_value=usb_network_config), \
+     patch.object(connection, "connect_device", return_value=usb_device) as usb_cli_connect, \
+     patch.object(snapshot_adapter, "snapshot", side_effect=_fixture_snapshot), \
+     patch.object(image, "capture", return_value=png), \
+     patch.object(remote_input, "send_sequence", return_value=[]):
+    for argv in (["observe"], ["tree"], ["visible"], ["input", "DOWN"],
+                 ["shot", "--json", str(valid_output_full), "--out", str(Path(TD) / "usb-shot.png")]):
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                rc = cli.main([*argv, "--serial", "USB_FIXTURE", "--quiet", "--no-color"])
+            target = usb_cli_connect.call_args.args[0].target
+        except SystemExit as error:
+            rc, target = error.code, None
+        t.eq(rc, 0, f"{argv[0]} USB 入口可用")
+        t.eq(target, "USB_FIXTURE", f"{argv[0]} 透传 USB serial")
+
+with patch.object(device_config, "load_device_config", return_value=usb_network_config), \
+     patch.object(mcp_interface, "connect_device", return_value=usb_device) as usb_mcp_connect, \
+     patch.object(snapshot_adapter, "snapshot", side_effect=_fixture_snapshot), \
+     patch.object(mcp_interface, "capture", return_value=png), \
+     patch.object(mcp_interface, "_save_focus_screenshot", return_value=str(Path(TD) / "usb-focus.png")), \
+     patch.object(timing, "LOG_STREAM", io.StringIO()):
+    for name in ("observe_tv", "get_full_tree", "get_visible", "get_current_focus", "get_focus_screenshot"):
+        try:
+            asyncio.run(mcp_interface.mcp.call_tool(name, {"serial": "USB_FIXTURE"}))
+            target = usb_mcp_connect.call_args.args[0].target
+        except Exception as error:
+            target = f"{type(error).__name__}: {error}"
+        t.eq(target, "USB_FIXTURE", f"MCP {name} 透传 USB serial")
+
+with patch.object(device_config, "load_device_config", return_value=usb_network_config), \
+     patch.object(connection, "connect_device", return_value=None), \
+     contextlib.redirect_stderr(io.StringIO()) as usb_diagnostics:
+    try:
+        args = cli.build_parser().parse_args(["visible", "--serial", "USB_FIXTURE"])
+        connection.connect_for_cli(args)
+    except SystemExit:
+        pass
+    t.ok("USB" in usb_diagnostics.getvalue() and "adb devices" in usb_diagnostics.getvalue(), "USB 连接失败提示调试与授权")
+    t.ok("ping" not in usb_diagnostics.getvalue() and "adb connect" not in usb_diagnostics.getvalue(), "USB 失败不显示网络排查步骤")
+
+with patch.object(device_config, "load_device_config", return_value={**usb_config, "serial": "USB\0"}), \
+     patch.object(adb.subprocess, "run", side_effect=AssertionError("非法 serial 不能访问 ADB")) as usb_invalid_process, \
+     contextlib.redirect_stderr(io.StringIO()) as usb_invalid_diagnostics:
+    try:
+        usb_invalid_rc = cli.main(["visible", "--quiet", "--no-color"])
+    except Exception as error:
+        usb_invalid_rc = type(error).__name__
+    t.eq(usb_invalid_rc, 2, "配置含 NUL 时 CLI 受控退出 2")
+    t.eq(usb_invalid_process.call_count, 0, "非法配置在启动 subprocess 前拒绝")
+    t.ok("serial" in usb_invalid_diagnostics.getvalue(), "非法配置明确报告 serial 校验错误")
+
+from tvuitree.infrastructure import uiautomator
+import uiautomator2
+with patch.object(uiautomator2, "connect", return_value=SimpleNamespace(
+    info={}, window_size=lambda: (1920, 1080), dump_hierarchy=lambda **kwargs: "<hierarchy/>")) as usb_u2:
+    uiautomator.fetch_u2("USB_FIXTURE", quiet=True)
+    t.eq(usb_u2.call_args.args, ("USB_FIXTURE",), "uiautomator2 使用同一 USB 序列号")
+
+from scripts import bench_mcp as usb_bench
+usb_bench_arguments = []
+
+async def usb_fake_benchmark(args, arguments, output_dir, report) -> None:
+    """保留异步调用契约，记录选定设备并避免真实采集。"""
+    usb_bench_arguments.append(arguments)
+    report["scene_unchanged"] = True
+
+for index, (config, arguments, expected) in enumerate([
+    (usb_network_config, ["--serial", "USB_FIXTURE"], {"serial": "USB_FIXTURE", "adb": "adb"}),
+    (usb_config, [], {"serial": "USB_FIXTURE", "adb": "adb"}),
+    (usb_config, ["192.0.2.2"], {"TV_IP_Address": "192.0.2.2", "port": 5555, "adb": "adb"}),
+]):
+    with patch.object(device_config, "load_device_config", return_value=config), \
+         patch.object(usb_bench, "run", side_effect=usb_fake_benchmark), \
+         patch.object(sys, "argv", ["bench_mcp.py", *arguments, "--output", str(Path(TD) / f"usb-bench-{index}")]), \
+         contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        try:
+            usb_bench_rc = usb_bench.main()
+        except SystemExit as error:
+            usb_bench_rc = error.code
+    t.eq(usb_bench_rc, 0, "压测入口离线解析目标")
+    t.eq(usb_bench_arguments[-1] if usb_bench_arguments else None, expected, "直接截图与 MCP 压测固定同一目标参数")
 
 shutil.rmtree(TD, ignore_errors=True)
 sys.exit(t.summary())

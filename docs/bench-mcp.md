@@ -13,6 +13,9 @@ $env:PYTHONUTF8 = '1'
 # 使用 config.json 的地址、端口与 ADB 路径
 .\.venv\Scripts\python.exe scripts/bench_mcp.py
 
+# USB 有线设备：序列号来自 adb devices，状态必须为 device
+.\.venv\Scripts\python.exe scripts/bench_mcp.py --serial USB_SERIAL --count 2 --warmup 1
+
 # 指定设备，先做两轮快速验证；地址示例请替换
 .\.venv\Scripts\python.exe scripts/bench_mcp.py 192.0.2.10 --count 2 --warmup 1
 
@@ -26,6 +29,7 @@ $env:PYTHONUTF8 = '1'
 |---|---|
 | `address` | 可省略，读取配置；填 IP 或主机名，不含端口 |
 | `--port` | 读取配置，合法范围 1–65535 |
+| `--serial` | USB 设备序列号；与显式 address/port 互斥；不填时沿用共享配置的目标选择规则 |
 | `--adb` | 读取配置及项目现有 ADB 解析规则 |
 | `-n` / `--count` | 每项正式调用 10 次，必须为正整数 |
 | `--warmup` | 每项预热 1 次，可设为 0；不进入正式统计 |

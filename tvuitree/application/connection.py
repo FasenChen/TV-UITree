@@ -11,14 +11,15 @@ from tvuitree.infrastructure.adb import Adb, resolve_adb
 
 @dataclass(frozen=True)
 class ConnectionOptions:
-    TV_IP_Address: str
-    port: int
+    TV_IP_Address: Optional[str] = None
+    port: Optional[int] = None
     adb: Optional[str] = None
     no_connect: bool = False
+    serial: Optional[str] = None
 
     @property
     def target(self) -> str:
-        return f"{self.TV_IP_Address}:{self.port}"
+        return self.serial if self.serial is not None else f"{self.TV_IP_Address}:{self.port}"
 
 
 def _check_address(address: object) -> str:
@@ -37,35 +38,60 @@ def _check_port(port: object) -> int:
     return port
 
 
+def _check_serial(serial: object) -> str:
+    if not isinstance(serial, str) or not serial or ":" in serial or any(
+        character.isspace() or not character.isprintable() for character in serial
+    ):
+        raise ValueError("serial 必须是 adb devices 中的非空 USB 序列号，不含空白、控制字符或冒号")
+    return serial
+
+
 def connection_options(*, TV_IP_Address: Optional[str] = None,
                        port: Optional[int] = None, adb: Optional[str] = None,
-                       no_connect: bool = False) -> ConnectionOptions:
+                       no_connect: bool = False, serial: Optional[str] = None) -> ConnectionOptions:
     """显式参数覆盖 config 默认值，供 CLI 与 MCP 共用。"""
     config = device_config.load_device_config()
-    address = _check_address(
-        config.get("TV_IP_Address") if TV_IP_Address is None else TV_IP_Address)
-    selected_port = _check_port(config.get("port") if port is None else port)
+    if serial is not None and (TV_IP_Address is not None or port is not None):
+        raise ValueError("serial 与 TV_IP_Address/port 不能同时指定")
+    selected_serial = serial
+    if serial is None and TV_IP_Address is None and port is None:
+        selected_serial = config.get("serial")
+    if selected_serial is not None:
+        selected_serial = _check_serial(selected_serial)
+        address, selected_port = None, None
+    else:
+        address = _check_address(
+            config.get("TV_IP_Address") if TV_IP_Address is None else TV_IP_Address)
+        selected_port = _check_port(config.get("port") if port is None else port)
     selected_adb = config.get("adb") if adb is None else adb
     if selected_adb is not None and (
         not isinstance(selected_adb, str) or not selected_adb.strip()
     ):
         raise ValueError("adb 必须是非空路径字符串，请检查 config.json")
-    return ConnectionOptions(address, selected_port, adb=selected_adb, no_connect=no_connect)
+    return ConnectionOptions(address, selected_port, adb=selected_adb,
+                             no_connect=no_connect, serial=selected_serial)
 
 
-def update_default_device(*, TV_IP_Address: str,
-                          port: Optional[int] = None) -> dict:
+def update_default_device(*, TV_IP_Address: Optional[str] = None,
+                          port: Optional[int] = None, serial: Optional[str] = None) -> dict:
     """校验并写入新的默认目标；config 里其他字段保持原样。"""
     config = device_config.load_device_config()
-    previous = {"TV_IP_Address": config.get("TV_IP_Address"), "port": config.get("port")}
-    address = _check_address(TV_IP_Address)
-    selected_port = _check_port(config.get("port") if port is None else port)
-    config["TV_IP_Address"] = address
-    config["port"] = selected_port
+    previous = ({"serial": config["serial"]} if config.get("serial") is not None else
+                {"TV_IP_Address": config.get("TV_IP_Address"), "port": config.get("port")})
+    if serial is not None:
+        if TV_IP_Address is not None or port is not None:
+            raise ValueError("serial 与 TV_IP_Address/port 不能同时指定")
+        current = {"serial": _check_serial(serial)}
+    else:
+        address = _check_address(TV_IP_Address)
+        selected_port = _check_port(config.get("port") if port is None else port)
+        current = {"TV_IP_Address": address, "port": selected_port}
+        config.pop("serial", None)
+    config.update(current)
     device_config.save_device_config(config)
     return {
         "previous": previous,
-        "current": {"TV_IP_Address": address, "port": selected_port},
+        "current": current,
         "config_path": str(device_config.CONFIG_PATH),
     }
 
