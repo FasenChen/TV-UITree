@@ -388,7 +388,7 @@ python scripts/bench_mcp.py --count 10 --warmup 1
 
 `--from-json` 在文件入口校验节点、子树、矩形和屏幕等实际消费的结构；保留合法稀疏数据及未知字段。损坏的 a11y XML 会报告采集失败，合法空 hierarchy 仍可以生成空树。`input` 在连接前验证整个键码序列，允许短名、`KEYCODE_*` 标识符和 ASCII 数字；含空格或 shell 元字符的非法键码返回 `2`，不会先发送合法前半段。实际 ADB 发送失败和 `shot` 图片解码、绘制或写入失败会输出中文说明并返回 `1`；`shot` 的 JSON/图片读取失败也保留返回 `1`。
 
-`python scripts/bench_mcp.py --count 10 --warmup 1` 比较同场景的五个 MCP 读取工具、tree/observe 的 a11y 模式与直接截图；设备默认读取配置。报告同时包含客户端总耗时、现有服务端总耗时、各阶段和同轮截图差值，写入项目根目录下 `report/bench_mcp/<时间>/`，自动生成带图表的 `README.md`、可单独离线打开的 `report.html` 和 `assets/*.svg`，同时保留 UTF-8 TXT／JSON／JSONL 与原始 stderr；本仓库对应 `D:\Code\tv-uitree\report\bench_mcp\<时间>\`，目录自动创建且被 Git 忽略。服务启动单列，预热与失败不进入成功统计，前后场景变化会标记比较条件不一致；不发送按键或修改配置。参数、边界及结果解读见 [MCP 与直接截图耗时压测](https://github.com/FasenChen/TV-UITree/blob/main/docs/bench-mcp.md)。
+`python scripts/bench_mcp.py --count 10 --warmup 1` 比较同场景的五个 MCP 读取工具、tree/observe 的 a11y 模式与直接截图；设备默认读取配置。报告同时包含客户端总耗时、现有服务端总耗时、各阶段和同轮截图差值，写入项目根目录下 `report/bench_mcp/<时间>/`，自动生成带图表的 `README.md`、可单独离线打开的 `report.html` 和 `assets/*.svg`，同时保留 UTF-8 TXT／JSON／JSONL 与原始 stderr；本仓库对应 `D:\Code\tv-uitree\report\bench_mcp\<时间>\`，目录自动创建且被 Git 忽略。可用 `--interval 5` 在相邻调用之间等待 5 秒（默认 0，等待不计入工具耗时）。服务启动单列，预热与失败不进入成功统计，前后场景变化会标记比较条件不一致；不发送按键或修改配置。参数、边界及结果解读见 [MCP 与直接截图耗时压测](https://github.com/FasenChen/TV-UITree/blob/main/docs/bench-mcp.md)。
 
 `slim` 默认启用八个剪枝开关：
 

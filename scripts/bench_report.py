@@ -134,6 +134,7 @@ def write_visual_report(report: dict, output: Path) -> None:
     config = {True: "配置字节不变", False: "配置字节变化"}.get(report.get("config_unchanged"), "配置未核对")
     title = "MCP 脚本性能压测报告"
     facts = f"开始时间：{report['started_at']}；连接方式：{mode}。每项计划正式 {report['count']} 次、预热 {report['warmup']} 次。"
+    facts += f"相邻调用等待 {report.get('interval_seconds', 0):g} 秒；等待不计入工具耗时。"
     result = f"状态：{report['status']}。完成 {len(formal)}/{expected} 次正式调用，成功 {succeeded} 次、失败 {len(formal)-succeeded} 次，已完成正式调用成功率 {rate}；{scene}，{config}。"
     limits = ["测试按单设备串行执行，结果适用于本次设备、固件、界面与本机环境，不代表并发容量。",
               "p50 是中位数；p90 表示 90% 成功样本不超过该耗时；p99 同理。均使用最近秩法；成功样本不足 100 个时，p99 等于本次最大值，不能估计长期尾部延迟。",

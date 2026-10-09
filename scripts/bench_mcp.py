@@ -213,7 +213,13 @@ async def run(args: argparse.Namespace, arguments: dict, output: Path, report: d
                         round_number = index + 1 if warmup else index - args.warmup + 1
                         shift = index % len(CASES)
                         for case in CASES[shift:] + CASES[:shift]:
+                            wait_ms = 0.0
+                            if report["samples"] and args.interval:
+                                waiting = time.perf_counter()
+                                await asyncio.sleep(args.interval)
+                                wait_ms = (time.perf_counter() - waiting) * 1000
                             sample = await measure(session, case, arguments, log, output / "stderr.log", round_number, warmup)
+                            sample["wait_before_ms"] = wait_ms
                             report["samples"].append(sample)
                             records.write(json.dumps(sample, ensure_ascii=False) + "\n")
                             records.flush()
@@ -229,6 +235,7 @@ def format_report(report: dict) -> str:
     """输出总量、阶段、同轮比较和逐次结果，单位统一为毫秒。"""
     lines = ["MCP 与直接截图耗时比较", f"开始时间：{report['started_at']}",
              f"每项正式 {report['count']} 次，预热 {report['warmup']} 次；串行、轮换顺序。",
+             f"相邻调用间隔：{report.get('interval_seconds', 0):g} 秒；等待不计入 client/server/stages 耗时。",
              f"服务启动/初始化(ms)：{report.get('startup_ms', '未完成')}",
              f"前后场景一致：{report.get('scene_unchanged', '未完成，不能确认条件一致')}",
              f"配置字节不变：{report['config_unchanged']}", f"状态：{report['status']}",
@@ -267,6 +274,7 @@ def main() -> int:
     parser.add_argument("--adb", help="ADB 路径；不填读取配置")
     parser.add_argument("-n", "--count", type=positive_int, default=10, help="每项正式次数，默认 10")
     parser.add_argument("--warmup", type=int, default=1, help="每项预热次数，默认 1，可为 0")
+    parser.add_argument("--interval", type=float, default=0, help="相邻调用之间等待的秒数，默认 0；包含预热与直接截图，不计入调用耗时")
     parser.add_argument("--timeout", type=positive_int, default=120, help="MCP 单次响应超时秒数，默认 120")
     parser.add_argument("--output", type=Path, help="新的报告目录；默认 report/bench_mcp/<时间>")
     parser.add_argument("--from-report", type=Path, help="从已有 report.json 在原目录补生成 README.md、HTML 和图表，不连接设备")
@@ -303,6 +311,8 @@ def main() -> int:
         return 0
     if args.warmup < 0:
         parser.error("warmup 不能为负数")
+    if not math.isfinite(args.interval) or args.interval < 0:
+        parser.error("interval 必须为有限的非负秒数")
     try:
         options = connection_options(TV_IP_Address=args.address, port=args.port, adb=args.adb,
                                      serial=args.serial)
@@ -315,7 +325,8 @@ def main() -> int:
         print(f"参数、配置或输出目录错误：{error}", file=sys.stderr)
         return 2
     report = {"started_at": datetime.now().isoformat(timespec="seconds"), "count": args.count,
-              "warmup": args.warmup, "target": options.target, "timeout_seconds": args.timeout,
+              "warmup": args.warmup, "interval_seconds": args.interval,
+              "target": options.target, "timeout_seconds": args.timeout,
               "environment": {"python": sys.version, "mcp": importlib.metadata.version("mcp"),
                               "uiautomator2": importlib.metadata.version("uiautomator2"), "adb": options.adb},
               "cases": [{"case": label, "tool": tool, "arguments": {**arguments, **overrides}} for label, tool, overrides in CASES],
