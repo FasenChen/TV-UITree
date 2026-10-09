@@ -313,13 +313,13 @@ MCP 工具没有 `--from-json`、`--out` 或按键参数；五个读取工具每
 .\.venv\Scripts\python.exe scripts/collect_tv_scene.py
 ```
 
-脚本使用当前 Python 环境启动本地 stdio MCP 服务，动态发现工具并串行调用；始终跳过 `set_default_network_device` 和 `set_default_usb_device`。当前会调用 `get_current_focus`、`get_focus_screenshot`、`get_screen_summary`、`get_full_tree` 和 `get_visible_controls`。脚本不接收设备命令行参数，所有调用沿用 `config.json` 中的 USB serial 或网络地址、端口和 ADB 路径。
+脚本使用当前 Python 环境启动本地 stdio MCP 服务，动态发现工具并串行调用；始终跳过 `set_default_network_device` 和 `set_default_usb_device`。`get_screen_summary` 和 `get_full_tree` 各调用两次，显式传入 `no_dumpsys=false`（a11y + dumpsys）与 `no_dumpsys=true`（仅 a11y）。`get_current_focus`、`get_focus_screenshot` 和 `get_visible_controls` 各调用一次，固定只采集 a11y；当前共七次读取调用。脚本不接收设备命令行参数，所有调用沿用 `config.json` 中的 USB serial 或网络地址、端口和 ADB 路径。
 
-终端打印生成文件的绝对路径：`_temp/tv-tool-report-<时间>.html`。用浏览器打开即可离线查看当前截图、焦点、窗口、分辨率、可见文字、各工具状态及可展开的返回 JSON。PNG 嵌入报告，原始 JSON 展开区用提示替代重复的图片 Base64。
+终端打印生成文件的绝对路径：`report/tv-tool-report-<时间>.html`，本仓库对应 `D:\Code\tv-uitree\report`；目录不存在时自动创建。用浏览器打开即可离线查看当前截图、焦点、窗口、分辨率、可见文字、各工具状态及可展开的返回 JSON。PNG 嵌入报告，原始 JSON 展开区用提示替代重复的图片 Base64。
 
-每张工具卡片右侧显示调用总耗时、服务端总计及各阶段毫秒数。调用总耗时从发起 `call_tool` 到 SDK 返回完整响应，包含协议传输和处理；服务端总计及阶段来自现有 stderr 计时块，阶段保留一位小数。服务启动、工具发现和报告写入不计入单个工具的调用时间；没有取得阶段日志时显示不可用。
+每张调用卡片标明采集模式和实际参数，分别保留返回 JSON；“a11y + dumpsys”使用橙色加粗框，“仅 a11y”沿用简洁小框。右侧显示调用总耗时、服务端总计及各阶段毫秒数。同名工具两种模式的计时按各次调用的日志范围分别读取。调用总耗时从发起 `call_tool` 到 SDK 返回完整响应，包含协议传输和处理；服务端总计及阶段来自现有 stderr 计时块，阶段保留一位小数。服务启动、工具发现和报告写入不计入单个工具的调用时间；没有取得阶段日志时显示不可用。顶部页面摘要采用 a11y + dumpsys 模式。
 
-工具级失败会保留错误信息并继续采集，全部调用成功时退出码为 `0`，有失败时为 `1`；服务启动或工具发现失败、没有可调用工具时不生成报告。各工具、树与截图分次采集，界面变化时可能对应不同瞬间。HTML 含当前画面、文字和本机路径，保留在 Git 忽略的 `_temp/` 下，分享前应检查内容。
+工具级失败会保留错误信息并继续采集，双源模式失败也不会被单源结果覆盖。全部调用成功时退出码为 `0`，有失败时为 `1`；服务启动或工具发现失败、没有可调用工具时不生成报告。各工具、两种模式、树与截图分次采集，界面变化时可能对应不同瞬间；单次耗时不能作为稳定的性能差异结论。HTML 含当前画面、文字和本机路径，保留在 Git 忽略的 `report/` 下，分享前应检查内容。
 
 ## 用 MCP Inspector 网页调试
 

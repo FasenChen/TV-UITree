@@ -10,6 +10,7 @@ env/
 
 # Generated investigation and run artifacts
 _temp/
+/report/
 tmp/
 
 # Local editor and OS files

@@ -19,6 +19,17 @@ from mcp.client.stdio import stdio_client
 
 ROOT = Path(__file__).resolve().parents[1]
 EXCLUDED_TOOLS = {"set_default_network_device", "set_default_usb_device"}
+DUMPSYS_TOOLS = {"get_screen_summary", "get_full_tree"}
+
+
+def _call_arguments(name: str) -> list[dict[str, bool]]:
+    """为支持 dumpsys 的工具分别安排双源与无障碍单源采集。"""
+    return [{"no_dumpsys": False}, {"no_dumpsys": True}] if name in DUMPSYS_TOOLS else [{}]
+
+
+def _capture_mode(arguments: dict[str, bool]) -> str:
+    """用正向表述标明实际采集模式，避免误读 no_dumpsys。"""
+    return "a11y + dumpsys" if arguments.get("no_dumpsys") is False else "仅 a11y"
 
 
 def _json_value(value: Any) -> Any:
@@ -76,9 +87,13 @@ def _tool_payload(result: Any) -> tuple[Any, str | None]:
 
 def _has_error(record: dict[str, Any]) -> bool:
     payload = record["payload"]
+    focus = payload.get("focus") if isinstance(payload, dict) else None
     return bool(
         record["is_error"]
-        or (isinstance(payload, dict) and (payload.get("error") or payload.get("call_error")))
+        or (isinstance(payload, dict) and (
+            payload.get("error") or payload.get("call_error") or payload.get("status") == "error"
+        ))
+        or (isinstance(focus, dict) and focus.get("status") == "error")
     )
 
 
@@ -122,7 +137,7 @@ async def _collect() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
         encoding_error_handler="replace",
     )
     records = []
-    with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as server_log:
+    with tempfile.TemporaryFile(mode="w+b") as server_log:
         async with stdio_client(server, errlog=server_log) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
@@ -131,17 +146,18 @@ async def _collect() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
                     {"name": tool.name, "description": tool.description or ""}
                     for tool in tools.tools
                 ]
-                for tool in tools.tools:
-                    if tool.name in EXCLUDED_TOOLS:
-                        continue
-                    print(f"正在采集：{tool.name}", flush=True)
+                calls = [(tool, arguments) for tool in tools.tools if tool.name not in EXCLUDED_TOOLS
+                         for arguments in _call_arguments(tool.name)]
+                for tool, arguments in calls:
+                    print(f"正在采集：{tool.name}（{_capture_mode(arguments)}）", flush=True)
+                    log_start = server_log.seek(0, 2)
                     started = dt.datetime.now().astimezone()
                     call_started = time.perf_counter()
                     call_ms = None
                     try:
                         result = await session.call_tool(
                             tool.name,
-                            {},
+                            arguments,
                             read_timeout_seconds=dt.timedelta(minutes=3),
                         )
                         call_ms = (time.perf_counter() - call_started) * 1000
@@ -167,17 +183,21 @@ async def _collect() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
                             "is_error": True,
                             "call_ms": call_ms,
                         }
+                    record["arguments"] = arguments
+                    record["log_range"] = (log_start, server_log.seek(0, 2))
                     records.append(record)
-        server_log.flush()
-        server_log.seek(0)
-        timings = _parse_server_timings(server_log.read())
-    for item in records:
-        item["timing"] = timings.get(item["name"])
+        for item in records:
+            # 按每次调用的日志范围解析，避免同名工具的两种模式共用最后一次计时。
+            start, end = item.pop("log_range")
+            server_log.seek(start)
+            log = server_log.read(end - start).decode("utf-8", errors="replace")
+            item["timing"] = _parse_server_timings(log).get(item["name"])
     return records, manifest
 
 
 def _record(records: list[dict[str, Any]], name: str) -> dict[str, Any]:
-    return next((item["payload"] for item in records if item["name"] == name), {})
+    return next((item["payload"] for item in records
+                 if item["name"] == name and not item["arguments"].get("no_dumpsys")), {})
 
 
 def _focus_text(records: list[dict[str, Any]]) -> str:
@@ -259,6 +279,9 @@ def _tool_rows(records: list[dict[str, Any]]) -> str:
         failed = _has_error(item)
         status = "需要查看" if failed else "已返回"
         status_class = "failed" if failed else "success"
+        mode = _capture_mode(item["arguments"])
+        mode_class = " mode-dumpsys" if item["arguments"].get("no_dumpsys") is False else ""
+        arguments_text = html.escape(json.dumps(item["arguments"], ensure_ascii=False))
         call_ms = item.get("call_ms")
         timing = item.get("timing")
         if isinstance(call_ms, (int, float)):
@@ -279,11 +302,11 @@ def _tool_rows(records: list[dict[str, Any]]) -> str:
             server_time = "未返回"
             stage_html = '<div>服务端阶段计时不可用</div>'
         rows.append(f'''<article class="tool-row">
-  <div class="tool-heading"><div><h3>{html.escape(item["name"])}</h3><p>{html.escape(item["description"])}</p></div>
+  <div class="tool-heading"><div><h3>{html.escape(item["name"])}</h3><p class="capture-mode{mode_class}">{mode}</p><p>{html.escape(item["description"])}</p></div>
   <div class="tool-status {status_class}"><div class="tool-result"><span aria-hidden="true"></span>{status}</div>
   <div class="timing-total">调用总耗时 <strong>{call_time}</strong></div>
   <div class="timing-server">服务端总计 {server_time}</div><div class="timing-stages">{stage_html}</div></div></div>
-  <div class="tool-meta"><span>采集时间 {html.escape(item["time"])}</span><span>字段 {html.escape(fields or "无")}</span></div>
+  <div class="tool-meta"><span>采集时间 {html.escape(item["time"])}</span><span>调用参数 {arguments_text}</span><span>字段 {html.escape(fields or "无")}</span></div>
   <details><summary>展开原始返回</summary><pre>{pretty}</pre></details>
 </article>''')
     return "\n".join(rows)
@@ -312,6 +335,7 @@ def _render_report(records: list[dict[str, Any]], manifest: list[dict[str, str]]
 .measurements{{margin:0;border-top:1px solid var(--line)}}.measurements div{{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line)}}.measurements dt{{font-size:13px;color:var(--muted)}}.measurements dd{{margin:0;font-variant-numeric:tabular-nums;font-weight:620;text-align:right}}
 .visible-list{{padding:22px 0 30px;border-bottom:1px solid var(--line)}}.visible-list h2,.section-title{{font-size:20px;margin:0 0 13px;letter-spacing:-.015em}}.labels{{display:flex;flex-wrap:wrap;gap:7px}}.item-label{{display:inline-block;border:1px solid #b8c6c0;padding:5px 10px;font-size:13px;background:#f5f8f4;color:#29433e}}.item-empty{{color:var(--muted);font-size:14px}}
 .tools-section{{padding-top:34px}}.section-head{{display:flex;justify-content:space-between;align-items:baseline;gap:20px;margin-bottom:8px}}.section-title{{margin:0}}.section-head p{{margin:0;color:var(--muted);font-size:13px}}.tool-row{{border-top:1px solid var(--line);padding:20px 0 22px}}.tool-heading{{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}}.tool-heading h3{{font:600 18px/1.25 "Cascadia Code","Consolas",monospace;margin:0 0 5px}}.tool-heading p{{font-size:14px;color:var(--muted);margin:0;max-width:850px}}
+.tool-heading .capture-mode{{display:inline-block;margin:3px 0 8px;padding:2px 7px;border:1px solid var(--line);font-size:12px;color:var(--green)}}.tool-heading .mode-dumpsys{{border:2px solid #c66b24;color:#a14f13}}
 .tool-status{{white-space:normal;font-size:12px;display:flex;flex:0 0 250px;width:250px;flex-direction:column;align-items:stretch;gap:6px;border-left:1px solid var(--line);padding:1px 0 0 16px;text-align:left}}.tool-result{{display:flex;align-items:center;gap:7px;font-size:12px}}.tool-result>span{{width:8px;height:8px;flex:0 0 8px;display:inline-block;border-radius:50%;background:var(--green)}}.tool-status.failed{{color:#973e2b}}.tool-status.failed .tool-result>span{{background:var(--signal)}}
 .timing-total{{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:13px;color:var(--ink);font-variant-numeric:tabular-nums}}.timing-total strong{{font-size:17px;font-weight:650}}.timing-server{{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}}.timing-stages{{display:grid;gap:3px;font-size:11px;line-height:1.4;color:var(--muted);font-variant-numeric:tabular-nums}}.timing-stage{{display:flex;justify-content:space-between;gap:12px}}.timing-stage b{{font-weight:500;white-space:nowrap}}.tool-status.failed .timing-total,.tool-status.failed .timing-server,.tool-status.failed .timing-stages{{color:inherit}}
 .tool-meta{{display:flex;flex-wrap:wrap;gap:8px 22px;color:var(--muted);font-size:12px;margin:12px 0}}details{{border-left:2px solid #b7c4be;padding:2px 0 2px 12px}}summary{{cursor:pointer;color:var(--green);font-size:13px;font-weight:620;width:max-content;max-width:100%}}summary:focus-visible{{outline:3px solid #236e5d;outline-offset:4px}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;max-height:560px;overflow:auto;background:var(--code);color:var(--code-text);padding:17px 19px;margin:12px 0 0;font:12px/1.55 "Cascadia Code","Consolas",monospace}}
@@ -319,11 +343,11 @@ def _render_report(records: list[dict[str, Any]], manifest: list[dict[str, str]]
 @media(max-width:420px){{.page{{padding-inline:15px}}.masthead{{align-items:flex-start;gap:10px;flex-direction:column}}.measurements div{{gap:8px}}}}
 </style></head><body><main class="page">
 <header class="masthead"><div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>TV UITree</span><span>/</span><span>现场采集</span></div><time>{html.escape(now.strftime("%Y-%m-%d %H:%M:%S %z"))}</time></header>
-<section class="cover"><div><h1>电视现场记录</h1><p>当前画面、焦点与 MCP 工具回传。原始数据按工具归档，可逐项展开。</p></div><div class="run-state"><strong>{succeeded} / {len(records)}</strong><span>读取工具成功</span><span>发现 {len(manifest)} 项，跳过 {len(skipped)} 项配置写入</span></div></section>
+<section class="cover"><div><h1>电视现场记录</h1><p>当前画面、焦点与 MCP 工具回传。摘要与完整树分别采集 a11y + dumpsys、仅 a11y 两种模式，返回与耗时独立记录。</p></div><div class="run-state"><strong>{succeeded} / {len(records)}</strong><span>采集调用成功</span><span>发现 {len(manifest)} 项工具，跳过 {len(skipped)} 项配置写入</span></div></section>
 {_summary_html(records)}
 <section class="tools-section" aria-label="MCP 工具返回"><div class="section-head"><h2 class="section-title">工具回传</h2><p>已发现：{discovered}<br>按要求跳过：{skipped_text}</p></div>
 {_tool_rows(records)}</section>
-<footer class="footnote">设备参数沿用当前 config.json；此脚本不会修改设备配置或发送遥控按键。{html.escape(screenshot_note)}。树、观察与截图各自采集，页面切换时它们可能对应不同瞬间。</footer>
+<footer class="footnote">设备参数沿用当前 config.json；此脚本不会修改设备配置或发送遥控按键。{html.escape(screenshot_note)}。顶部摘要采用 a11y + dumpsys 模式。各工具与两种模式分次采集，页面切换时可能对应不同瞬间；单次耗时不代表稳定的性能差异。</footer>
 </main></body></html>'''
 
 
@@ -342,18 +366,18 @@ async def main() -> int:
         return 1
 
     report = _render_report(records, manifest)
-    expected_rows = sum(item["name"] not in EXCLUDED_TOOLS for item in manifest)
+    expected_rows = sum(len(_call_arguments(item["name"])) for item in manifest if item["name"] not in EXCLUDED_TOOLS)
     if report.count('class="tool-row"') != expected_rows:
         print("报告校验失败：工具返回数与工具清单不一致。", file=sys.stderr)
         return 1
 
-    output_dir = ROOT / "_temp"
+    output_dir = ROOT / "report"
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = dt.datetime.now().astimezone().strftime("%Y%m%d-%H%M%S-%f")
     output_path = output_dir / f"tv-tool-report-{timestamp}.html"
     output_path.write_text(report, encoding="utf-8")
     print(f"HTML 报告：{output_path}")
-    print(f"工具返回：{sum(not _has_error(item) for item in records)}/{len(records)} 成功")
+    print(f"采集调用：{sum(not _has_error(item) for item in records)}/{len(records)} 成功")
     return 0 if all(not _has_error(item) for item in records) else 1
 
 

@@ -3128,13 +3128,14 @@ with patch.object(device_config, "CONFIG_PATH", settings_config_path), \
 @contextlib.asynccontextmanager
 async def settings_fake_stdio(*args, **kwargs):
     """提供现场采集所需的异步上下文，避免启动外部服务。"""
+    settings_session.server_log = kwargs["errlog"]
     yield None, None
 
 class SettingsSceneSession:
     """记录现场采集的实际调用，保留会话生命周期契约。"""
 
     def __init__(self) -> None:
-        self.calls: list[str] = []
+        self.calls: list[tuple[str, dict]] = []
 
     async def __aenter__(self) -> SettingsSceneSession:
         return self
@@ -3147,19 +3148,52 @@ class SettingsSceneSession:
 
     async def list_tools(self) -> SimpleNamespace:
         return SimpleNamespace(tools=[SimpleNamespace(name=name, description="fixture") for name in (
-            "get_screen_summary", "set_default_network_device", "set_default_usb_device")])
+            "get_current_focus", "get_focus_screenshot", "get_screen_summary", "get_full_tree",
+            "get_visible_controls", "set_default_network_device", "set_default_usb_device")])
 
     async def call_tool(self, name: str, arguments: dict, **kwargs) -> SimpleNamespace:
-        self.calls.append(name)
-        return SimpleNamespace(content=[], structuredContent={}, isError=False)
+        self.calls.append((name, arguments.copy()))
+        duration = len(self.calls) * 100
+        self.server_log.write((f"[tv-uitree] 12:00:00.000 {name}  total {duration:.1f} ms\n"
+                               f"  capture_tree {duration:.1f} ms 100.0%\n").encode("utf-8"))
+        self.server_log.flush()
+        payload = {"fixture_mode": arguments.get("no_dumpsys"), "fixture_sequence": len(self.calls)}
+        if name == "get_full_tree" and arguments.get("no_dumpsys") is False:
+            payload["error"] = "fixture dumpsys unavailable"
+        return SimpleNamespace(content=[], structuredContent=payload, isError=False)
 
 settings_session = SettingsSceneSession()
 with patch.object(settings_scene, "stdio_client", settings_fake_stdio), \
      patch.object(settings_scene, "ClientSession", return_value=settings_session), \
      contextlib.redirect_stdout(io.StringIO()):
     settings_records, settings_manifest = asyncio.run(settings_scene._collect())
-t.eq(settings_session.calls, ["get_screen_summary"], "现场采集跳过网络和 USB 配置写入工具")
-t.eq([record["name"] for record in settings_records], ["get_screen_summary"], "只读报告不包含设置调用")
+t.eq(settings_session.calls, [
+    ("get_current_focus", {}), ("get_focus_screenshot", {}),
+    ("get_screen_summary", {"no_dumpsys": False}), ("get_screen_summary", {"no_dumpsys": True}),
+    ("get_full_tree", {"no_dumpsys": False}), ("get_full_tree", {"no_dumpsys": True}),
+    ("get_visible_controls", {}),
+], "现场采集覆盖两种模式且跳过网络与 USB 配置写入工具")
+t.eq([record["timing"]["server_ms"] for record in settings_records],
+     [100, 200, 300, 400, 500, 600, 700], "同名工具每次调用保留独立计时")
+t.eq([record["timing"]["stages"][0]["ms"] for record in settings_records],
+     [100, 200, 300, 400, 500, 600, 700], "同名工具每次调用保留独立阶段计时")
+t.eq(settings_scene._record(settings_records, "get_screen_summary")["fixture_sequence"], 3,
+     "顶部摘要明确选用双源模式")
+t.ok(settings_scene._has_error(settings_records[4]), "双源失败保留原始错误")
+t.ok(not settings_scene._has_error(settings_records[5]), "双源失败仍继续独立的 a11y 采集")
+settings_report = settings_scene._render_report(settings_records, settings_manifest)
+t.eq(settings_report.count('class="tool-row"'), 7, "报告生成七张独立调用卡片")
+t.eq(settings_report.count('class="capture-mode mode-dumpsys">a11y + dumpsys'),
+     2, "双源模式卡片明确标注")
+t.eq(settings_report.count('class="capture-mode">仅 a11y'), 5, "无障碍模式卡片明确标注")
+t.ok('no_dumpsys&quot;: true' in settings_report and 'no_dumpsys&quot;: false' in settings_report,
+     "报告展示两种模式实际调用参数")
+t.ok(settings_scene._has_error({"is_error": False, "payload": {"status": "error"}}),
+     "焦点工具结构化错误不计入成功")
+t.ok(settings_scene._has_error({"is_error": False, "payload": {"focus": {"status": "error"}}}),
+     "屏幕摘要结构化错误不计入成功")
+t.ok(not settings_scene._has_error({"is_error": False, "payload": {"status": "unknown"}}),
+     "焦点未知不误判为采集错误")
 
 shutil.rmtree(TD, ignore_errors=True)
 sys.exit(t.summary())
