@@ -266,7 +266,7 @@ def get_focus_screenshot(
 
 
 @mcp.tool()
-def observe_tv(
+def get_screen_summary(
     TV_IP_Address: Optional[str] = None,
     port: Optional[int] = None,
     adb: Optional[str] = None,
@@ -276,7 +276,7 @@ def observe_tv(
     serial: Optional[str] = None,
 ) -> dict:
     """读取当前 TV 焦点、精简页面节点和 R0–R3 证据。"""
-    with tool_timing("observe_tv") as timer:
+    with tool_timing("get_screen_summary") as timer:
         try:
             with timer.stage("connect"):
                 device, target = _connect(
@@ -328,7 +328,7 @@ def get_full_tree(
 
 
 @mcp.tool()
-def get_visible(
+def get_visible_controls(
     TV_IP_Address: Optional[str] = None,
     port: Optional[int] = None,
     adb: Optional[str] = None,
@@ -336,7 +336,7 @@ def get_visible(
     serial: Optional[str] = None,
 ) -> dict:
     """读取当前屏幕内的控件摘要和焦点，排除屏外节点与空布局。"""
-    with tool_timing("get_visible") as timer:
+    with tool_timing("get_visible_controls") as timer:
         try:
             with timer.stage("connect"):
                 device, _target = _connect(

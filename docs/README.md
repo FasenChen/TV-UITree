@@ -2,6 +2,13 @@
 
 项目使用说明见 [根目录 README](../README.md)，编码与交付约定见 [AGENTS.md](../AGENTS.md)。长期维护的说明、计划、审查与交付报告统一存放在 `docs/`。
 
+## MCP 工具命名
+
+- [实施计划](superpowers/plans/2026-10-09-mcp-tool-names.md)：两处 MCP 工具改名及消费者同步。
+- [Ponytail 计划审核](reviews/2026-10-09-mcp-tool-names-plan-review.md)：独立审核通过，无阻塞问题。
+- [Ponytail 代码终审](reviews/2026-10-09-mcp-tool-names-code-review.md)：独立复跑自检及 AST 对比通过，无阻塞问题。
+- [交付与验证报告](reports/2026-10-09-mcp-tool-names-delivery.md)：1256 条离线断言、schema 对比及两处新工具真机协议验证通过。
+
 ## USB 有线 ADB
 
 - [实施计划](superpowers/plans/2026-10-09-usb-adb.md)：CLI、MCP、默认配置及压测入口的序列号支持。

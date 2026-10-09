@@ -44,9 +44,9 @@ $env:PYTHONUTF8 = '1'
 |---|---|---|
 | `get_full_tree` | MCP `get_full_tree` | 默认 a11y + dumpsys |
 | `get_full_tree_a11y` | MCP `get_full_tree` | `no_dumpsys=true` |
-| `observe_tv` | MCP `observe_tv` | 默认 a11y + dumpsys |
-| `observe_tv_a11y` | MCP `observe_tv` | `no_dumpsys=true` |
-| `get_visible` | MCP `get_visible` | 按现有契约仅采 a11y |
+| `get_screen_summary` | MCP `get_screen_summary` | 默认 a11y + dumpsys |
+| `get_screen_summary_a11y` | MCP `get_screen_summary` | `no_dumpsys=true` |
+| `get_visible_controls` | MCP `get_visible_controls` | 按现有契约仅采 a11y |
 | `get_current_focus` | MCP `get_current_focus` | 按现有契约仅采 a11y |
 | `get_focus_screenshot` | MCP `get_focus_screenshot` | a11y 焦点 + PNG + 标注 + 编码 + 文件 + MCP 图片返回 |
 | `direct_screenshot` | 同一连接配置下调用 `image.capture` | 直接取回原始 PNG，不读树、不标注、不做 MCP 封装 |

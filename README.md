@@ -117,7 +117,7 @@ python main.py observe --from-json full.json --out observe.json
 
 节点的 `path` 是**本次快照内**的树位置，不能当成跨页面或跨采集的稳定标识。`actions` 描述节点读到的可操作属性，不表示遥控器按键后一定会跳到该节点。`bounds_kind=screen_reading` 对应 a11y 的屏幕坐标读数；`bounds_kind=local_reading` 对应 dumpsys 相对父容器的布局坐标读数，两者不能直接混用。
 
-`error` 是 MCP 的 `observe_tv` 在采集失败时返回的状态；CLI 采集失败时打印原因并以退出码 `3` 结束，不输出观察 JSON。
+`error` 是 MCP 的 `get_screen_summary` 在采集失败时返回的状态；CLI 采集失败时打印原因并以退出码 `3` 结束，不输出观察 JSON。
 
 ## 通过 MCP 接入模型
 
@@ -128,16 +128,18 @@ python main.py observe --from-json full.json --out observe.json
 (Resolve-Path .\main.py).Path
 ```
 
-在 MCP 客户端中选择 stdio 传输，将第一条路径设为启动命令，第二条路径设为第一个参数，并将 `mcp` 设为第二个参数，工作目录设为仓库根目录。启动后服务等待客户端请求，终端没有页面输出是正常现象；客户端应能列出 `observe_tv`、`get_full_tree`、`get_visible`、`get_current_focus`、`get_focus_screenshot` 和 `set_default_device`。若启动时报缺少 `mcp`，在仓库根目录执行 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`。
+在 MCP 客户端中选择 stdio 传输，将第一条路径设为启动命令，第二条路径设为第一个参数，并将 `mcp` 设为第二个参数，工作目录设为仓库根目录。启动后服务等待客户端请求，终端没有页面输出是正常现象；客户端应能列出 `get_screen_summary`、`get_full_tree`、`get_visible_controls`、`get_current_focus`、`get_focus_screenshot` 和 `set_default_device`。若启动时报缺少 `mcp`，在仓库根目录执行 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`。
 
 | 工具 | 返回内容 | 常用参数 |
 |---|---|---|
-| `observe_tv` | 焦点、页面摘要和判断证据 | `serial` 或 `TV_IP_Address`、`port`；`no_dumpsys`、`max_nodes` |
+| `get_screen_summary` | 焦点、页面摘要和判断证据 | `serial` 或 `TV_IP_Address`、`port`；`no_dumpsys`、`max_nodes` |
 | `get_full_tree` | 当次采集的完整控件树 | `serial` 或 `TV_IP_Address`、`port`；`no_dumpsys` |
-| `get_visible` | 当前屏幕的控件摘要、焦点及操作属性 | `serial` 或 `TV_IP_Address`、`port`；`no_connect` |
+| `get_visible_controls` | 当前屏幕的控件摘要、焦点及操作属性 | `serial` 或 `TV_IP_Address`、`port`；`no_connect` |
 | `get_current_focus` | 精简的焦点状态和焦点节点信息 | `serial` 或 `TV_IP_Address`、`port` |
 | `get_focus_screenshot` | 返回截图结果、本地 PNG 路径和可直接显示的图片 | `serial` 或 `TV_IP_Address`、`port` |
 | `set_default_device` | 修改 `config.json` 的默认设备，返回切换前后的目标 | `serial` 或 `TV_IP_Address`（二选一）；网络可带 `port` |
+
+自 2026-10-09 起，`observe_tv` 更名为 `get_screen_summary`，`get_visible` 更名为 `get_visible_controls`。旧名称不再注册；已有调用、提示词或自动化需替换名称，重启 MCP 服务后让客户端刷新工具列表。参数、返回字段、CLI 的 `observe` 和 `visible` 命令保持不变。
 
 ### MCP 工具参数
 
@@ -150,20 +152,20 @@ python main.py observe --from-json full.json --out observe.json
 | `port` | integer 或 null | `null` | ADB TCP 端口；省略时读取 `config.json` 的 `port`，有效范围 1–65535。 |
 | `adb` | string 或 null | `null` | 运行 MCP 服务的电脑上的 ADB 可执行文件路径；省略时读取 `config.json` 的 `adb`。显式传入时覆盖配置。 |
 
-`observe_tv`、`get_full_tree` 和 `get_visible` 支持 `no_connect`；`no_dumpsys` 仅适用于 `observe_tv` 和 `get_full_tree`：
+`get_screen_summary`、`get_full_tree` 和 `get_visible_controls` 支持 `no_connect`；`no_dumpsys` 仅适用于 `get_screen_summary` 和 `get_full_tree`：
 
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `no_connect` | boolean | `false` | 为 `true` 时不执行 `adb connect`，但仍会查询 `adb devices`，且只接受目标状态为 `device`；`offline` 和 `unauthorized` 不视为可用连接。适合已提前连接的设备。 |
-| `no_dumpsys` | boolean | `false` | `observe_tv` 和 `get_full_tree` 使用。为 `true` 时只读取 uiautomator2 无障碍树；为 `false` 时同时读取 `dumpsys activity top`，用于补充 View 节点和 R0–R3 配对证据。 |
+| `no_dumpsys` | boolean | `false` | `get_screen_summary` 和 `get_full_tree` 使用。为 `true` 时只读取 uiautomator2 无障碍树；为 `false` 时同时读取 `dumpsys activity top`，用于补充 View 节点和 R0–R3 配对证据。 |
 
-`get_current_focus` 和 `get_focus_screenshot` 按默认配置连接 TV，只读取焦点所需的 a11y 树，不提供这两个诊断参数。需要双源诊断时使用 `observe_tv` 或 `get_full_tree`。
+`get_current_focus` 和 `get_focus_screenshot` 按默认配置连接 TV，只读取焦点所需的 a11y 树，不提供这两个诊断参数。需要双源诊断时使用 `get_screen_summary` 或 `get_full_tree`。
 
 USB 的五个读取工具调用参数均可为 `{"serial": "USB_SERIAL"}`。`set_default_device` 必须传入 serial 或 TV_IP_Address 二选一：`{"serial": "USB_SERIAL"}` 保存默认 USB 序列号，保留旧网络字段；`{"TV_IP_Address": "192.0.2.10", "port": 5555}` 切回网络并删除 serial，省略 port 时保留配置原端口。不能单独传 port。adb 等其他配置不变；非法目标或写入失败不修改原文件，保存仍为原子操作。配置每次连接时重新读取，切换无需重启 MCP；新增 serial 参数的 schema 需要客户端重新发现工具。
 
 工具只改配置、不连接设备；成功返回 previous、current 和 config_path，失败返回 error 与 error_type。previous/current 的网络目标仍为 `{"TV_IP_Address": "192.0.2.10", "port": 5555}`，USB 目标为 `{"serial": "USB_SERIAL"}`。`config.json` 受 git 跟踪，不要提交本机设备地址、序列号或私有设置。
 
-`get_visible` 与 `python main.py visible` 共用同一观察服务，只采集 a11y，输出 `tv-visible/v1`。结构类似 `observe_tv`：`focus.status` 给出焦点状态，找到唯一焦点时 `focus.path` 指向 `page.nodes` 中的节点；`page.nodes` 包含屏幕内有内容或焦点的控件摘要，提供标签、原始树路径、屏幕坐标及可用操作。同一可操作行的标题和值合并为一个节点；无内容的布局容器不返回。无显示文字的可操作图标若有 `content_desc`，会以 `accessibility_labels` 标出，避免把无障碍描述误认为屏幕文字。只依据 a11y 的 `bounds_screen` 读数、可见属性及屏幕交集判断，保留部分进入屏幕的节点；dumpsys 派生坐标不作为当前可见的证明。省略号摘要与完整文本同时出现时，只保留完整文本。输出不包含完整树、R0–R3 诊断统计或截图 OCR，因此不能证明像素遮挡。无显示文字但有 `clickable`、`long_clickable` 或 `checkable` 明确读数的控件，也会保留已有资源 ID、坐标和操作信息；开关的 `checked=false` 是未选状态，`enabled=false` 是明确的禁用读数。缺失状态保持未知，不补成 false，也不编造文字标签。连接或采集失败时返回 `mode=visible` 与 `error`，异常时另含 `error_type`。
+`get_visible_controls` 与 `python main.py visible` 共用同一观察服务，只采集 a11y，输出 `tv-visible/v1`。结构类似 `get_screen_summary`：`focus.status` 给出焦点状态，找到唯一焦点时 `focus.path` 指向 `page.nodes` 中的节点；`page.nodes` 包含屏幕内有内容或焦点的控件摘要，提供标签、原始树路径、屏幕坐标及可用操作。同一可操作行的标题和值合并为一个节点；无内容的布局容器不返回。无显示文字的可操作图标若有 `content_desc`，会以 `accessibility_labels` 标出，避免把无障碍描述误认为屏幕文字。只依据 a11y 的 `bounds_screen` 读数、可见属性及屏幕交集判断，保留部分进入屏幕的节点；dumpsys 派生坐标不作为当前可见的证明。省略号摘要与完整文本同时出现时，只保留完整文本。输出不包含完整树、R0–R3 诊断统计或截图 OCR，因此不能证明像素遮挡。无显示文字但有 `clickable`、`long_clickable` 或 `checkable` 明确读数的控件，也会保留已有资源 ID、坐标和操作信息；开关的 `checked=false` 是未选状态，`enabled=false` 是明确的禁用读数。缺失状态保持未知，不补成 false，也不编造文字标签。连接或采集失败时返回 `mode=visible` 与 `error`，异常时另含 `error_type`。
 
 例如焦点位于 IP address 行时，精简结果的主要部分如下（`path` 和坐标以当次采集为准）：
 
@@ -180,13 +182,13 @@ USB 的五个读取工具调用参数均可为 `{"serial": "USB_SERIAL"}`。`set
 }
 ```
 
-`observe_tv` 另外支持以下参数：
+`get_screen_summary` 另外支持以下参数：
 
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `max_nodes` | integer | `80` | `page.nodes` 的最大摘要节点数。只限制页面摘要，不会删除 `focus.context`、焦点候选或 `evidence`；小于 1 的值会按 1 处理。 |
 
-#### `observe_tv` 调用示例
+#### `get_screen_summary` 调用示例
 
 使用 `config.json` 中的默认电视：
 
@@ -244,9 +246,9 @@ USB 的五个读取工具调用参数均可为 `{"serial": "USB_SERIAL"}`。`set
 }
 ```
 
-MCP 工具没有 `--from-json`、`--out` 或按键参数；每次调用都会重新读取设备。`observe_tv` 成功时返回 `schema_version=tv-observation/v1`，失败时仍返回结构化 JSON，并将 `focus.status` 设为 `error`。`get_full_tree` 失败时返回包含 `error`、`error_type` 和 `mode=full` 的 JSON。
+MCP 工具没有 `--from-json`、`--out` 或按键参数；每次调用都会重新读取设备。`get_screen_summary` 成功时返回 `schema_version=tv-observation/v1`，失败时仍返回结构化 JSON，并将 `focus.status` 设为 `error`。`get_full_tree` 失败时返回包含 `error`、`error_type` 和 `mode=full` 的 JSON。
 
-`get_current_focus` 返回 `status` 和精简的焦点 `node`（标签、可选摘要、控件类、资源 ID、包名、坐标及其来源）。标签和摘要会从焦点容器下可见的文本节点中提取，因此焦点落在无文字的布局容器上时，仍能返回容器所代表的项目名称；例如设置列表会返回 `label: Network & Internet` 和对应的网络摘要。工具不会返回重复的 `candidates`，也不会附带祖先、同级节点或子节点。若焦点有多个候选，则返回精简候选列表；若焦点缺失或采集失败，则返回状态和原因。完整上下文仍可通过 `observe_tv.focus` 获取。
+`get_current_focus` 返回 `status` 和精简的焦点 `node`（标签、可选摘要、控件类、资源 ID、包名、坐标及其来源）。标签和摘要会从焦点容器下可见的文本节点中提取，因此焦点落在无文字的布局容器上时，仍能返回容器所代表的项目名称；例如设置列表会返回 `label: Network & Internet` 和对应的网络摘要。工具不会返回重复的 `candidates`，也不会附带祖先、同级节点或子节点。若焦点有多个候选，则返回精简候选列表；若焦点缺失或采集失败，则返回状态和原因。完整上下文仍可通过 `get_screen_summary.focus` 获取。
 
 `get_focus_screenshot` 返回精简的文本 JSON 和可直接显示的 MCP `image/png` 内容。JSON 固定包含 `focus_found`（找到唯一 a11y 焦点）、`screenshot_captured`（取得 PNG）、`focus_marked`（在截图上成功画出唯一红框）、`image_path`（服务器本机保存的 PNG 绝对路径；未保存时为 `null`）和 `image_base64`（同一张 PNG 的纯 Base64 字符串；未取得截图时为 `null`）；连接、采集、绘制或保存失败时额外包含简短的 `error`。每次调用都在 Git 忽略的 `_temp/focus_screenshots/` 下保存独立文件。红框只使用 a11y 的 `bounds_screen` 读数，1080p 线宽为 6 像素，并随图片高度缩放，不用 dumpsys 派生坐标猜位置。没有唯一焦点时仍返回未标注的截图和路径；若保存失败但已取得 PNG，仍返回 MCP 图片及 `image_base64`。`image_path` 是 MCP 服务所在电脑的本地路径，其他电脑上的客户端可使用返回的 MCP 图片内容或 `image_base64`。
 
@@ -308,7 +310,7 @@ npx -y @modelcontextprotocol/inspector .\.venv\Scripts\python.exe .\main.py mcp
 }
 ```
 
-`get_full_tree` 和 `get_visible` 不接受 `max_nodes`；如果只验证 `get_full_tree` 的 a11y 读取，可以把 `no_dumpsys` 设为 `true`。`get_visible` 始终只采集 a11y，不需要此参数。`get_current_focus` 和 `get_focus_screenshot` 不接受 `max_nodes`、`no_connect` 或 `no_dumpsys`。Inspector 网页本身只调试 MCP 协议和工具参数；除 `set_default_device` 修改 `config.json` 外，其余工具都是只读采集；所有工具都不会发送遥控器按键。
+`get_full_tree` 和 `get_visible_controls` 不接受 `max_nodes`；如果只验证 `get_full_tree` 的 a11y 读取，可以把 `no_dumpsys` 设为 `true`。`get_visible_controls` 始终只采集 a11y，不需要此参数。`get_current_focus` 和 `get_focus_screenshot` 不接受 `max_nodes`、`no_connect` 或 `no_dumpsys`。Inspector 网页本身只调试 MCP 协议和工具参数；除 `set_default_device` 修改 `config.json` 外，其余工具都是只读采集；所有工具都不会发送遥控器按键。
 
 stdio 服务的标准输出专用于 MCP 协议，诊断信息写入标准错误；不要在 `main.py mcp` 服务中增加普通标准输出日志，否则可能导致 Inspector 连接失败。更完整的协议、CLI 和网页选项见 [MCP Inspector 官方文档](https://github.com/modelcontextprotocol/docs/blob/main/docs/tools/inspector.mdx)。
 

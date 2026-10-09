@@ -33,9 +33,9 @@ from tvuitree.interfaces.timing import tool_timing
 CASES = (
     ("get_full_tree", "get_full_tree", {}),
     ("get_full_tree_a11y", "get_full_tree", {"no_dumpsys": True}),
-    ("observe_tv", "observe_tv", {}),
-    ("observe_tv_a11y", "observe_tv", {"no_dumpsys": True}),
-    ("get_visible", "get_visible", {}),
+    ("get_screen_summary", "get_screen_summary", {}),
+    ("get_screen_summary_a11y", "get_screen_summary", {"no_dumpsys": True}),
+    ("get_visible_controls", "get_visible_controls", {}),
     ("get_current_focus", "get_current_focus", {}),
     ("get_focus_screenshot", "get_focus_screenshot", {}),
     ("direct_screenshot", "direct_screenshot", {}),

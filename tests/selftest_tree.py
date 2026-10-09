@@ -1328,12 +1328,12 @@ try:
         cli_observe_rc = cli.main(["observe", "--out", os.path.join(TD, "shared_observe.json")])
     with open(os.path.join(TD, "shared_observe.json"), encoding="utf-8") as source:
         cli_observation = json.load(source)
-    mcp_observation = mcp_interface.observe_tv()
+    mcp_observation = mcp_interface.get_screen_summary()
     t.eq(cli_observe_rc, 0, "CLI 实时观察退出码")
     t.eq(_without_capture_time(cli_observation), _without_capture_time(mcp_observation),
          "CLI 与 MCP 对同一快照返回相同观察 JSON")
-    t.eq(_timing_calls(), [("observe_tv", ["connect", "capture_tree", "summarize"], None)],
-         "observe_tv 每次调用写一行耗时，分连接、采集、摘要")
+    t.eq(_timing_calls(), [("get_screen_summary", ["connect", "capture_tree", "summarize"], None)],
+         "get_screen_summary 每次调用写一行耗时，分连接、采集、摘要")
 
     mcp_focus = mcp_interface.get_current_focus()
     t.eq(mcp_focus["status"], cli_observation["focus"]["status"],
@@ -1349,6 +1349,10 @@ try:
     mcp_schemas = {
         tool.name: tool.inputSchema for tool in asyncio.run(mcp_interface.mcp.list_tools())
     }
+    t.eq(set(mcp_schemas), {
+        "get_screen_summary", "get_full_tree", "get_visible_controls",
+        "get_current_focus", "get_focus_screenshot", "set_default_device",
+    }, "MCP 仅注册六个现行工具名称，不保留旧名别名")
     for name in ("get_current_focus", "get_focus_screenshot"):
         t.eq(set(mcp_schemas[name]["properties"]), {"TV_IP_Address", "port", "adb", "serial"},
              f"{name} 只公开设备连接参数")
@@ -1356,9 +1360,9 @@ try:
          "set_default_device 公开网络地址或 USB 序列号")
     t.eq(mcp_schemas["set_default_device"].get("required", []), [],
          "set_default_device 在共享服务中校验目标二选一")
-    t.eq(set(mcp_schemas["get_visible"]["properties"]),
+    t.eq(set(mcp_schemas["get_visible_controls"]["properties"]),
          {"TV_IP_Address", "port", "adb", "no_connect", "serial"},
-         "get_visible 只公开设备连接参数，不采集无关的 dumpsys")
+         "get_visible_controls 只公开设备连接参数，不采集无关的 dumpsys")
 
     if has_pil:
         mcp_interface.capture = lambda device: png
@@ -1487,13 +1491,13 @@ try:
         cli_visible_rc = cli.main(["visible", "--out", os.path.join(TD, "shared_visible.json")])
     with open(os.path.join(TD, "shared_visible.json"), encoding="utf-8") as source:
         cli_visible = json.load(source)
-    mcp_visible = mcp_interface.get_visible()
+    mcp_visible = mcp_interface.get_visible_controls()
     t.eq(cli_visible_rc, 0, "CLI 可视树退出码")
     t.eq(_without_capture_time(cli_visible), _without_capture_time(mcp_visible),
          "CLI 与 MCP 对同一快照返回相同可视树 JSON")
     t.eq(_timing_calls(),
-         [("get_visible", ["connect", "capture_tree", "summarize"], None)],
-         "get_visible 写一行耗时")
+         [("get_visible_controls", ["connect", "capture_tree", "summarize"], None)],
+         "get_visible_controls 写一行耗时")
     t.eq(set(mcp_visible), {"schema_version", "mode", "captured_at", "screen",
                             "focus", "page"}, "可视结果保留观察所需的焦点和页面结构")
     t.eq(mcp_visible["schema_version"], "tv-visible/v1", "可视摘要使用独立版本")
@@ -1585,11 +1589,11 @@ try:
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         failure_rc = cli.main(["observe"])
     t.eq(failure_rc, 3, "采集失败时 CLI 保留退出码 3")
-    t.eq(mcp_interface.observe_tv()["focus"]["status"], "error",
+    t.eq(mcp_interface.get_screen_summary()["focus"]["status"], "error",
          "采集失败时 MCP 返回结构化 error 状态")
     t.eq(mcp_interface.get_current_focus()["status"], "error",
          "独立焦点工具在采集失败时返回 error 状态")
-    t.eq(mcp_interface.get_visible()["mode"], "visible",
+    t.eq(mcp_interface.get_visible_controls()["mode"], "visible",
          "可视工具采集失败时保留 visible 模式")
     failed_focus_shot = mcp_interface.get_focus_screenshot()[0]
     t.eq([failed_focus_shot[key] for key in
@@ -1598,9 +1602,9 @@ try:
     t.ok("焦点采集失败" in failed_focus_shot["error"],
          "焦点采集失败时返回可读错误")
     t.eq(_timing_calls(), [
-        ("observe_tv", ["connect", "capture_tree"], "capture_tree"),
+        ("get_screen_summary", ["connect", "capture_tree"], "capture_tree"),
         ("get_current_focus", ["connect", "capture_tree"], "capture_tree"),
-        ("get_visible", ["connect", "capture_tree"], "capture_tree"),
+        ("get_visible_controls", ["connect", "capture_tree"], "capture_tree"),
         ("get_focus_screenshot", ["connect", "capture_tree", "screenshot", "encode", "save"],
          "capture_tree"),
     ], "采集失败被工具吞掉时日志仍标出 failed=capture_tree")
@@ -2191,10 +2195,10 @@ cli_src = _read("tvuitree/interfaces/cli.py")
 t.ok("DEFAULT_MAX_NODES" in cli_src,
      "CLI --max-nodes 默认值引用 DEFAULT_MAX_NODES，不另写 80")
 t.ok("max_nodes: int = DEFAULT_MAX_NODES" in mcp_src,
-     "MCP observe_tv.max_nodes 默认值引用同一常量")
+     "MCP get_screen_summary.max_nodes 默认值引用同一常量")
 t.eq(build_parser().parse_args(["observe"]).max_nodes, DEFAULT_MAX_NODES,
      "解析后的 CLI 默认值等于 DEFAULT_MAX_NODES")
-t.eq(inspect.signature(mcp_mod.observe_tv).parameters["max_nodes"].default,
+t.eq(inspect.signature(mcp_mod.get_screen_summary).parameters["max_nodes"].default,
      DEFAULT_MAX_NODES, "运行时 MCP 默认值等于同一常量")
 t.eq(getattr(mcp_mod, "FOCUS_NODE_FIELDS", None),
      ("class", "resource_id", "package", "bounds", "bounds_kind", "source"),
@@ -2787,14 +2791,14 @@ def quality_projection_interfaces(full: dict) -> tuple[dict, dict, dict, dict]:
         rc, out, err = quality_cli(["observe", "--no-dumpsys", "--quiet", "--no-color"])
         t.eq(rc, 0, "CLI observe 离线接口成功")
         cli_observation = json.loads(out) if rc == 0 else {}
-        mcp_observation = mcp_interface.observe_tv(no_dumpsys=True)
-        t.eq(_timing_calls(), [("observe_tv", ["connect", "capture_tree", "summarize"], None)],
+        mcp_observation = mcp_interface.get_screen_summary(no_dumpsys=True)
+        t.eq(_timing_calls(), [("get_screen_summary", ["connect", "capture_tree", "summarize"], None)],
              "observe 恰好一个 timing 块")
         rc, out, err = quality_cli(["visible", "--quiet", "--no-color"])
         t.eq(rc, 0, "CLI visible 离线接口成功")
         cli_visible = json.loads(out) if rc == 0 else {}
-        mcp_visible = mcp_interface.get_visible()
-        t.eq(_timing_calls(), [("get_visible", ["connect", "capture_tree", "summarize"], None)],
+        mcp_visible = mcp_interface.get_visible_controls()
+        t.eq(_timing_calls(), [("get_visible_controls", ["connect", "capture_tree", "summarize"], None)],
              "visible 恰好一个 timing 块")
     t.eq(cli_observation, mcp_observation, "observe 接口投影一致")
     t.eq(cli_visible, mcp_visible, "visible 接口投影一致")
@@ -2860,11 +2864,11 @@ with patch("tvuitree.infrastructure.snapshot.snapshot", return_value=snap):
 with patch("tvuitree.infrastructure.snapshot.snapshot", return_value=snap), \
      patch.object(mcp_interface, "_connect", return_value=(SimpleNamespace(serial="fixture"), "fixture")), \
      patch.object(timing, "LOG_STREAM", io.StringIO()):
-    result = mcp_interface.observe_tv(no_dumpsys=True)
+    result = mcp_interface.get_screen_summary(no_dumpsys=True)
     calls = _timing_calls()
 t.eq(result.get("focus", {}).get("status"), "error", "MCP 不伪报正常观察")
 t.eq(result.get("full_tree_available"), False, "失败树不可用")
-t.eq(calls, [("observe_tv", ["connect", "capture_tree"], "capture_tree")],
+t.eq(calls, [("get_screen_summary", ["connect", "capture_tree"], "capture_tree")],
      "MCP 一次计时并定位解析失败阶段")
 
 
@@ -3305,7 +3309,7 @@ with patch.object(device_config, "load_device_config", return_value=usb_network_
      patch.object(mcp_interface, "capture", return_value=png), \
      patch.object(mcp_interface, "_save_focus_screenshot", return_value=str(Path(TD) / "usb-focus.png")), \
      patch.object(timing, "LOG_STREAM", io.StringIO()):
-    for name in ("observe_tv", "get_full_tree", "get_visible", "get_current_focus", "get_focus_screenshot"):
+    for name in ("get_screen_summary", "get_full_tree", "get_visible_controls", "get_current_focus", "get_focus_screenshot"):
         try:
             asyncio.run(mcp_interface.mcp.call_tool(name, {"serial": "USB_FIXTURE"}))
             target = usb_mcp_connect.call_args.args[0].target
